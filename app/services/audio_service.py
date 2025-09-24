@@ -113,24 +113,32 @@ class AudioService:
     async def create_transcription_job(
         self,
         file_id: str,
-        user_id: str = None
+        user_id: str = None,
+        case_id: str = None
     ) -> TranscriptionJob:
         """Create a new transcription job."""
         try:
             job_id = str(uuid.uuid4())
             
             # Insert into database
-            result = self.client.table('transcription_jobs').insert({
+            insert_data = {
                 'id': job_id,
                 'file_id': file_id,
                 'status': 'pending',
                 'progress': 0.0
-            }).execute()
+            }
+            
+            # Add case_id if provided
+            if case_id:
+                insert_data['case_id'] = case_id
+            
+            result = self.client.table('transcription_jobs').insert(insert_data).execute()
             
             if result.data:
                 job = TranscriptionJob(
                     job_id=job_id,
                     file_id=file_id,
+                    case_id=case_id,
                     status="pending",
                     progress=0.0
                 )
@@ -365,6 +373,7 @@ class AudioService:
                 jobs.append(TranscriptionJob(
                     job_id=job_data['id'],
                     file_id=job_data['file_id'],
+                    case_id=job_data.get('case_id'),
                     status=job_data['status'],
                     progress=job_data['progress'],
                     result=result_data,
@@ -377,6 +386,53 @@ class AudioService:
             
         except Exception as e:
             self.logger.error(f"Failed to list all transcription jobs: {str(e)}")
+            return []
+    
+    async def get_transcriptions_by_case_id(
+        self,
+        case_id: str,
+        status: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> List[TranscriptionJob]:
+        """Get all transcription jobs for a specific case ID."""
+        try:
+            query = self.client.table('transcription_jobs').select('*').eq('case_id', case_id)
+            
+            if status:
+                query = query.eq('status', status)
+            
+            result = query.order('created_at', desc=True).range(offset, offset + limit - 1).execute()
+            
+            jobs = []
+            for job_data in result.data:
+                # Parse result if it exists
+                result_data = None
+                if job_data.get('result'):
+                    try:
+                        if isinstance(job_data['result'], str):
+                            result_data = json.loads(job_data['result'])
+                        else:
+                            result_data = job_data['result']
+                    except (json.JSONDecodeError, TypeError):
+                        result_data = job_data['result']
+                
+                jobs.append(TranscriptionJob(
+                    job_id=job_data['id'],
+                    file_id=job_data['file_id'],
+                    case_id=job_data.get('case_id'),
+                    status=job_data['status'],
+                    progress=job_data['progress'],
+                    result=result_data,
+                    error_message=job_data.get('error_message'),
+                    created_at=datetime.fromisoformat(job_data['created_at'].replace('Z', '+00:00')),
+                    completed_at=datetime.fromisoformat(job_data['completed_at'].replace('Z', '+00:00')) if job_data.get('completed_at') else None
+                ))
+            
+            return jobs
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get transcriptions for case {case_id}: {str(e)}")
             return []
     
     async def list_audio_files(
@@ -427,3 +483,63 @@ class AudioService:
         except Exception as e:
             self.logger.error(f"Failed to delete audio file: {str(e)}")
             return False
+
+    async def get_transcripts_by_case_id(
+        self,
+        case_id: str,
+        status: Optional[str] = "completed",
+        limit: int = 50,
+        offset: int = 0
+    ) -> List[dict]:
+        """Get transcripts for a specific case ID from completed jobs."""
+        try:
+            # Get completed transcription jobs for this case
+            query = self.client.table('transcription_jobs').select('*').eq('case_id', case_id)
+            if status:
+                query = query.eq('status', status)
+            
+            result = query.order('created_at', desc=True).range(offset, offset + limit - 1).execute()
+            
+            if not result.data:
+                self.logger.info(f"No completed transcriptions found for case: {case_id}")
+                return []
+            
+            transcripts = []
+            
+            for job_data in result.data:
+                try:
+                    # Parse the result JSON string to extract transcript
+                    result_data = job_data.get('result')
+                    
+                    if result_data:
+                        # If result_data is a string, parse it as JSON
+                        if isinstance(result_data, str):
+                            import json
+                            result_data = json.loads(result_data)
+                        
+                        if isinstance(result_data, dict):
+                            transcript_text = result_data.get('transcript', '')
+                            
+                            if transcript_text:
+                                transcripts.append({
+                                    'job_id': job_data['id'],
+                                    'transcript': transcript_text,
+                                    'created_at': job_data['created_at'],
+                                    'completed_at': job_data.get('completed_at')
+                                })
+                            else:
+                                self.logger.warning(f"No transcript text found for job {job_data['id']}")
+                        else:
+                            self.logger.warning(f"Invalid result data for job {job_data['id']}")
+                    else:
+                        self.logger.warning(f"No result data for job {job_data['id']}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to parse result for job {job_data['id']}: {str(e)}")
+                    continue
+            
+            self.logger.info(f"Retrieved {len(transcripts)} transcripts for case: {case_id}")
+            return transcripts
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get transcripts for case {case_id}: {str(e)}")
+            return []

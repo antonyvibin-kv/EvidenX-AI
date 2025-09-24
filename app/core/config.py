@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # Deepgram Configuration
     deepgram_api_key: str = Field(default="", description="Deepgram API key for audio transcription")
     
+    # OpenAI Configuration
+    openai_api_key: str = Field(default="", description="OpenAI API key for transcript analysis")
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
