@@ -57,6 +57,11 @@ class AudioTranscriptionRequest(BaseModel):
         description="Search terms to highlight",
         example=None
     )
+    case_id: Optional[str] = Field(
+        default=None,
+        description="Case identifier for grouping transcriptions",
+        example="CASE-2024-001"
+    )
     
     class Config:
         schema_extra = {
@@ -67,7 +72,8 @@ class AudioTranscriptionRequest(BaseModel):
                 "punctuate": True,
                 "smart_format": True,
                 "redact": None,
-                "search": None
+                "search": None,
+                "case_id": "CASE-2024-001"
             }
         }
 
@@ -140,6 +146,7 @@ class TranscriptionJob(BaseModel):
     """Model for tracking transcription jobs."""
     job_id: str = Field(..., description="Unique job identifier")
     file_id: str = Field(..., description="Associated file ID")
+    case_id: Optional[str] = Field(None, description="Case identifier for grouping transcriptions")
     status: str = Field(..., description="Job status (pending, processing, completed, failed)")
     progress: float = Field(default=0.0, description="Progress percentage (0-100)")
     result: Optional[AudioTranscriptionResponse] = Field(None, description="Transcription result")
@@ -168,3 +175,35 @@ class SpeakerDiarizationConfig(BaseModel):
     max_speakers: int = Field(default=10, description="Maximum number of speakers")
     speaker_change_sensitivity: float = Field(default=0.5, description="Sensitivity for speaker changes (0-1)")
     enable_speaker_embedding: bool = Field(default=True, description="Enable speaker embedding analysis")
+
+
+class TranscriptResponse(BaseModel):
+    """Response model for a single transcript."""
+    job_id: str = Field(..., description="Transcription job ID")
+    transcript: str = Field(..., description="The transcript text")
+    created_at: datetime = Field(..., description="When the transcription was created")
+    completed_at: Optional[datetime] = Field(None, description="When the transcription was completed")
+
+
+class ComparisonItem(BaseModel):
+    """Individual comparison item from transcript analysis."""
+    topic: str = Field(..., description="The topic being compared")
+    witness1: str = Field(..., description="Statement from first witness/transcript")
+    witness2: str = Field(..., description="Statement from second witness/transcript")
+    status: str = Field(..., description="Status: similarity, contradiction, or gray_area")
+    details: str = Field(..., description="Brief explanation of the comparison result")
+
+
+class TranscriptAnalysis(BaseModel):
+    """Analysis results for transcripts in simplified format."""
+    comparisons: List[ComparisonItem] = Field(..., description="List of topic comparisons between transcripts")
+    followUpQuestions: List[str] = Field(..., description="Follow-up questions that can be asked to both witnesses")
+    analysis_timestamp: datetime = Field(default_factory=datetime.utcnow, description="When the analysis was performed")
+
+
+class CaseTranscriptsResponse(BaseModel):
+    """Response model for transcripts by case ID."""
+    case_id: str = Field(..., description="Case identifier")
+    transcripts: List[TranscriptResponse] = Field(..., description="Array of transcripts for this case")
+    total_count: int = Field(..., description="Total number of transcripts found")
+    analysis: Optional[TranscriptAnalysis] = Field(None, description="AI analysis of the transcripts")

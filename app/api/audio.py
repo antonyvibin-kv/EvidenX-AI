@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse
 from typing import Optional, List, Dict
+from datetime import datetime
 import uuid
 import time
 import logging
@@ -13,10 +14,15 @@ from app.schemas.audio import (
     AudioUploadResponse,
     TranscriptionJob,
     AudioFileInfo,
-    SpeakerDiarizationConfig
+    TranscriptResponse,
+    CaseTranscriptsResponse,
+    SpeakerDiarizationConfig,
+    TranscriptAnalysis,
+    ComparisonItem
 )
 from app.services.deepgram_service import DeepgramService
 from app.services.audio_service import AudioService
+from app.services.openai_service import OpenAIService
 from app.core.config import settings
 from app.api.auth import get_current_user
 
@@ -30,6 +36,7 @@ router = APIRouter()
 # Initialize services
 deepgram_service = None
 audio_service = AudioService()
+openai_service = OpenAIService()
 
 
 def get_deepgram_service() -> DeepgramService:
@@ -160,7 +167,8 @@ async def transcribe_audio(
     try:
         # Create transcription job in database
         job = await audio_service.create_transcription_job(
-            file_id=file_id
+            file_id=file_id,
+            case_id=request.case_id
             # No user_id for testing
         )
         
@@ -373,6 +381,51 @@ async def list_transcription_jobs(
     return jobs
 
 
+@router.get("/jobs/case/{case_id}", 
+            response_model=List[TranscriptionJob],
+            summary="Get Transcriptions by Case ID",
+            description="Get all transcription jobs for a specific case ID. Returns all jobs associated with the case, including their status and results.",
+            tags=["Job Management"])
+async def get_transcriptions_by_case_id(
+    case_id: str,
+    # current_user: dict = Depends(get_current_user),  # Disabled for testing
+    status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    """
+    Get all transcription jobs for a specific case ID.
+    
+    **Parameters:**
+    - `case_id`: The case identifier to filter by
+    - `status`: Optional filter by job status (pending, processing, completed, failed)
+    - `limit`: Maximum number of jobs to return (default: 50)
+    - `offset`: Number of jobs to skip for pagination (default: 0)
+    
+    **Returns:**
+    - List of transcription jobs for the specified case
+    - Jobs ordered by creation date (newest first)
+    - Includes job status, progress, and results
+    """
+    try:
+        jobs = await audio_service.get_transcriptions_by_case_id(
+            case_id=case_id,
+            status=status,
+            limit=limit,
+            offset=offset
+        )
+        
+        logger.info(f"Retrieved {len(jobs)} transcription jobs for case: {case_id}")
+        return jobs
+        
+    except Exception as e:
+        logger.error(f"Failed to get transcriptions for case {case_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve transcriptions for case: {str(e)}"
+        )
+
+
 @router.get("/files", response_model=List[AudioFileInfo])
 async def list_audio_files(
     current_user: dict = Depends(get_current_user),
@@ -449,3 +502,244 @@ async def get_supported_formats():
     except Exception as e:
         logger.error(f"Failed to get supported formats: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get supported formats")
+
+
+@router.get("/transcripts/case/{case_id}", 
+            response_model=CaseTranscriptsResponse,
+            summary="Get Transcripts by Case ID",
+            description="Get all transcripts for a specific case ID. Returns only the transcript text from completed jobs. Optionally includes AI analysis of the transcripts.",
+            tags=["Transcripts"])
+async def get_transcripts_by_case_id(
+    case_id: str,
+    # current_user: dict = Depends(get_current_user),  # Disabled for testing
+    status: Optional[str] = "completed",
+    limit: int = 50,
+    offset: int = 0,
+    include_analysis: bool = False
+):
+    """
+    Get transcripts for a specific case ID.
+    
+    Returns an array of transcripts from completed transcription jobs for the given case.
+    Each transcript includes the job ID, transcript text, and timestamps.
+    Optionally includes AI analysis of the transcripts to identify similarities, 
+    contradictions, gray areas, and suggest follow-up questions.
+    
+    **Parameters:**
+    - `case_id`: Case identifier
+    - `status`: Job status filter (default: "completed")
+    - `limit`: Maximum number of transcripts to return (default: 50)
+    - `offset`: Number of transcripts to skip (default: 0)
+    - `include_analysis`: Whether to include AI analysis (default: false)
+    
+    **Response with Analysis (`include_analysis=true`):**
+    - `case_id`: Case identifier
+    - `transcripts`: Array of transcript objects
+    - `total_count`: Total number of transcripts found
+    - `analysis`: AI analysis object containing:
+      - `comparisons`: Topic-by-topic comparisons between transcripts
+      - `followUpQuestions`: Specific questions for both witnesses
+      - `analysis_timestamp`: When analysis was performed
+    """
+    try:
+        # Get transcripts from audio service
+        transcripts_data = await audio_service.get_transcripts_by_case_id(
+            case_id=case_id,
+            status=status,
+            limit=limit,
+            offset=offset
+        )
+        
+        # Convert to response format
+        transcript_responses = []
+        for transcript_data in transcripts_data:
+            transcript_responses.append(TranscriptResponse(
+                job_id=transcript_data['job_id'],
+                transcript=transcript_data['transcript'],
+                created_at=datetime.fromisoformat(transcript_data['created_at'].replace('Z', '+00:00')),
+                completed_at=datetime.fromisoformat(transcript_data['completed_at'].replace('Z', '+00:00')) if transcript_data.get('completed_at') else None
+            ))
+        
+        # Initialize response without analysis
+        response = CaseTranscriptsResponse(
+            case_id=case_id,
+            transcripts=transcript_responses,
+            total_count=len(transcript_responses)
+        )
+        
+        # Perform AI analysis if requested and we have transcripts
+        if include_analysis and transcript_responses:
+            try:
+                logger.info(f"Starting AI analysis for case {case_id} with {len(transcript_responses)} transcripts")
+                
+                # Extract transcript texts for analysis
+                transcript_texts = [t.transcript for t in transcript_responses]
+                
+                # Perform OpenAI analysis
+                analysis_result = await openai_service.analyze_transcripts(
+                    transcripts=transcript_texts,
+                    case_id=case_id
+                )
+                
+                # Convert analysis result to Pydantic models
+                comparisons = [
+                    ComparisonItem(
+                        topic=item['topic'],
+                        witness1=item['witness1'],
+                        witness2=item['witness2'],
+                        status=item['status'],
+                        details=item['details']
+                    ) for item in analysis_result.get('comparisons', [])
+                ]
+                
+                # Create analysis object
+                analysis = TranscriptAnalysis(
+                    comparisons=comparisons,
+                    followUpQuestions=analysis_result.get('followUpQuestions', [])
+                )
+                
+                # Add analysis to response
+                response.analysis = analysis
+                
+                logger.info(f"Successfully completed AI analysis for case {case_id}")
+                
+            except Exception as analysis_error:
+                logger.error(f"Failed to perform AI analysis for case {case_id}: {str(analysis_error)}")
+                # Continue without analysis rather than failing the entire request
+                logger.info(f"Returning transcripts without analysis for case {case_id}")
+        
+        logger.info(f"Retrieved {len(transcript_responses)} transcripts for case: {case_id}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Failed to get transcripts for case {case_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve transcripts for case: {str(e)}"
+        )
+
+
+@router.post("/transcripts/case/{case_id}/analyze", 
+            response_model=TranscriptAnalysis,
+            summary="Analyze Transcripts for Case",
+            description="Perform AI analysis on all transcripts for a specific case to identify similarities, contradictions, gray areas, and suggest follow-up questions.",
+            tags=["Transcripts"])
+async def analyze_transcripts_for_case(
+    case_id: str,
+    # current_user: dict = Depends(get_current_user),  # Disabled for testing
+    status: Optional[str] = "completed",
+    limit: int = 50,
+    offset: int = 0
+):
+    """
+    Analyze transcripts for a specific case ID.
+    
+    Performs comprehensive AI analysis on all transcripts for the given case,
+    identifying similarities, contradictions, gray areas, and suggesting follow-up questions.
+    
+    **Response Format:**
+    - `comparisons`: Array of topic-by-topic comparisons between transcripts
+      - `topic`: The topic being compared (e.g., "Time of incident", "Suspect description")
+      - `witness1`: Statement from first witness/transcript
+      - `witness2`: Statement from second witness/transcript
+      - `status`: "similarity", "contradiction", or "gray_area"
+      - `details`: Brief explanation of the comparison result
+    - `followUpQuestions`: Array of specific questions that can be asked to both witnesses
+    - `analysis_timestamp`: When the analysis was performed
+    
+    **Example Response:**
+    ```json
+    {
+      "comparisons": [
+        {
+          "topic": "Time of incident",
+          "witness1": "Around 2:30 AM",
+          "witness2": "Approximately 2:15 AM",
+          "status": "contradiction",
+          "details": "15-minute discrepancy in reported time"
+        }
+      ],
+      "followUpQuestions": [
+        "What was the exact time of the incident?",
+        "Can you provide more details about the suspect's appearance?"
+      ],
+      "analysis_timestamp": "2024-01-01T10:10:00Z"
+    }
+    ```
+    """
+    try:
+        # Get transcripts from audio service
+        transcripts_data = await audio_service.get_transcripts_by_case_id(
+            case_id=case_id,
+            status=status,
+            limit=limit,
+            offset=offset
+        )
+        
+        if not transcripts_data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No transcripts found for case {case_id}"
+            )
+        
+        # Extract transcript texts for analysis
+        transcript_texts = [transcript_data['transcript'] for transcript_data in transcripts_data]
+        
+        logger.info(f"Starting AI analysis for case {case_id} with {len(transcript_texts)} transcripts")
+        
+        # Perform OpenAI analysis
+        analysis_result = await openai_service.analyze_transcripts(
+            transcripts=transcript_texts,
+            case_id=case_id
+        )
+        
+        # Convert analysis result to Pydantic models
+        comparisons = [
+            ComparisonItem(
+                topic=item['topic'],
+                witness1=item['witness1'],
+                witness2=item['witness2'],
+                status=item['status'],
+                details=item['details']
+            ) for item in analysis_result.get('comparisons', [])
+        ]
+        
+        # Create analysis object
+        analysis = TranscriptAnalysis(
+            comparisons=comparisons,
+            followUpQuestions=analysis_result.get('followUpQuestions', [])
+        )
+        
+        logger.info(f"Successfully completed AI analysis for case {case_id}")
+        return analysis
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to analyze transcripts for case {case_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to analyze transcripts for case: {str(e)}"
+        )
+
+
+@router.post("/debug/case/{case_id}", 
+            summary="Debug Case Data",
+            description="Debug endpoint to see what data exists for a case ID",
+            tags=["Debug"])
+async def debug_case_data(case_id: str):
+    """Debug endpoint to see what data exists for a case ID."""
+    try:
+        # Get raw data from transcription_jobs table
+        result = audio_service.client.table('transcription_jobs').select('*').eq('case_id', case_id).execute()
+        
+        return {
+            "case_id": case_id,
+            "total_jobs": len(result.data),
+            "jobs": result.data
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "case_id": case_id
+        }
