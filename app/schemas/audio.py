@@ -29,7 +29,7 @@ class AudioTranscriptionRequest(BaseModel):
     )
     model: Optional[str] = Field(
         default="nova-2", 
-        description="Deepgram model to use",
+        description="Deepgram model to use (nova-2 for better speaker diarization)",
         example="nova-2"
     )
     diarize: bool = Field(
