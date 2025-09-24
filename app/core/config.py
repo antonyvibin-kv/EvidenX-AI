@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
     jwt_expire_minutes: int = Field(default=30, description="JWT expiration time in minutes")
     
+    # Deepgram Configuration
+    deepgram_api_key: str = Field(default="", description="Deepgram API key for audio transcription")
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
