@@ -250,6 +250,49 @@ async def process_transcription(
             transcription_result=result
         )
         
+        # Also save to media table if we have case information
+        try:
+            # Get job details to extract case_id if available
+            job_details = await audio_service.get_transcription_job(job_id)
+            if job_details and hasattr(job_details, 'case_id') and job_details.case_id:
+                # Generate title and summary with OpenAI
+                from app.services.openai_service import OpenAIService
+                openai_service = OpenAIService()
+                
+                title, summary = await openai_service.generate_audio_title_and_summary(
+                    transcript=result.transcript,
+                    case_id=job_details.case_id
+                )
+                
+                # Generate follow-up questions
+                follow_up_questions = await openai_service.generate_follow_up_questions(
+                    transcript=result.transcript,
+                    case_id=job_details.case_id
+                )
+                
+                # Get audio file info for URL
+                audio_file_info = await audio_service.get_audio_file_info(file_id)
+                audio_url = audio_file_info.get('s3_key', '') if audio_file_info else ''
+                
+                # Save to media table
+                import uuid
+                media_id = str(uuid.uuid4())
+                await audio_service.save_audio_to_media_table(
+                    media_id=media_id,
+                    case_id=job_details.case_id,
+                    url=audio_url,
+                    transcript=result.transcript,
+                    title=title,
+                    summary=summary,
+                    duration=result.duration,
+                    speakers=len(result.speakers),
+                    confidence=result.confidence,
+                    follow_up_questions=follow_up_questions
+                )
+                logger.info(f"Audio saved to media table for case {job_details.case_id}")
+        except Exception as e:
+            logger.warning(f"Failed to save to media table: {e}")
+        
         # No cleanup needed - files are stored in S3
         
         logger.info(f"Transcription completed for job: {job_id}")
@@ -822,17 +865,45 @@ async def analyze_audio(
                 "Can you describe the location in more detail?"
             ]
         
+        # Generate title and summary with OpenAI
+        logger.info("Generating title and summary with OpenAI...")
+        try:
+            title, summary = await openai_service.generate_audio_title_and_summary(
+                transcript=transcription_result.transcript,
+                case_id=request.case_id
+            )
+        except Exception as e:
+            logger.warning(f"Failed to generate title and summary: {e}")
+            title = "Audio Recording"
+            summary = "Audio recording from investigation"
+        
         # Create audio info object
         audio_info = AudioInfo(
             transcript=transcription_result.transcript,
             follow_up_questions=follow_up_questions
         )
         
-        # Store in database
+        # Store in database (both audio_files and media tables)
         await audio_service.create_audio_analysis_record(
             case_id=request.case_id,
             url=request.url,
             audio_info=audio_info
+        )
+        
+        # Save to media table
+        import uuid
+        media_id = str(uuid.uuid4())
+        await audio_service.save_audio_to_media_table(
+            media_id=media_id,
+            case_id=request.case_id,
+            url=request.url,
+            transcript=transcription_result.transcript,
+            title=title,
+            summary=summary,
+            duration=transcription_result.duration,
+            speakers=len(transcription_result.speakers),
+            confidence=transcription_result.confidence,
+            follow_up_questions=follow_up_questions
         )
         
         logger.info(f"Audio analysis completed for case {request.case_id}")
