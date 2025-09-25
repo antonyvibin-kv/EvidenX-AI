@@ -53,6 +53,17 @@ class Settings(BaseSettings):
     hf_token: str = Field(
         default="", description="Hugging Face token for video "
     )
+
+    # Google API Key
+    google_api_key: str = Field(
+        default="", description="Google API key for embedding generation"
+    )
+    qdrant_api_key: str = Field(
+        default="", description="Qdrant API key for vector database access"
+    )
+    qdrant_url: str = Field(
+        default="", description="Qdrant URL for vector database access"
+    )
     class Config:
         env_file = ".env"
         case_sensitive = False

@@ -18,3 +18,5 @@ pillow
 torch
 torchvision
 scipy
+google-generativeai
+qdrant-client

@@ -1,6 +1,11 @@
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
-from app.schemas.ai_service import VisualSearchRequest, VisualSearchResponse, DetectionResult
+from app.schemas.ai_service import (
+    VisualSearchRequest,
+    VisualSearchResponse,
+    DetectionResult,
+)
 from app.services.visual_search_service import VisualSearch
+from app.services.knowledge_base_service import KnowledgeBase
 import logging
 import time
 import tempfile
@@ -22,22 +27,22 @@ async def download_video_from_s3(s3_url: str) -> str:
     try:
         response = requests.get(s3_url, stream=True)
         response.raise_for_status()
-        
+
         # Create a temporary file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-        
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+
         # Download the video content
         for chunk in response.iter_content(chunk_size=8192):
             temp_file.write(chunk)
-        
+
         temp_file.close()
         return temp_file.name
-        
+
     except Exception as e:
         logger.error(f"Error downloading video from S3: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to download video from S3: {str(e)}"
+            detail=f"Failed to download video from S3: {str(e)}",
         )
 
 
@@ -51,27 +56,24 @@ def cleanup_temp_file(file_path: str):
 
 
 @router.post("/visual-search")
-async def perform_visual_search(
-    url: str,
-    prompt: str
-):
+async def perform_visual_search(url: str, prompt: str):
     """
     Perform visual search on a video using AI object detection.
-    
+
     This endpoint downloads a video from the provided S3 URL and performs
     visual search using the specified query to detect objects/people in the video.
     """
     temp_video_path = None
-    
+
     try:
         logger.info(f"Starting visual search for query: '{prompt}' on video: {url}")
-        
+
         # Download video from S3
         # temp_video_path = await download_video_from_s3(str(request.s3_url))\
         detections = []
         visual_searcher = VisualSearch()
         current_dir = os.getcwd()
-        video_path = url + '.mp4'
+        video_path = url + ".mp4"
         video_location = os.path.join(current_dir, "app", "storage", video_path)
         detections = visual_searcher.fetch_timestamp(prompt, video_location)
         return detections
@@ -84,11 +86,27 @@ async def perform_visual_search(
             cleanup_temp_file(temp_video_path)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Visual search failed: {str(e)}"
+            detail=f"Visual search failed: {str(e)}",
         )
 
 
+@router.post("/knowledge-base")
+async def query_knowledge_base(query: str):
+    """
+    Query the knowledge base service with a given query string.
+    """
+    try:
 
+        knowledge_base = KnowledgeBase()
+        response = knowledge_base.search_similar_documents(query, top_k=5)
+        
+        return response
+    except Exception as e:
+        logger.error(f"Knowledge base query failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Knowledge base query failed: {str(e)}",
+        )
 
 
 @router.get("/health")
@@ -98,18 +116,20 @@ async def health_check():
         # Check if CUDA is available
         device_info = {
             "cuda_available": torch.cuda.is_available(),
-            "device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0
+            "device_count": (
+                torch.cuda.device_count() if torch.cuda.is_available() else 0
+            ),
         }
-        
+
         return {
             "status": "healthy",
             "service": "AI Visual Search Service",
             "device_info": device_info,
-            "timestamp": datetime.utcnow()
+            "timestamp": datetime.utcnow(),
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Service unhealthy"
+            detail="Service unhealthy",
         )
