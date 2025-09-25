@@ -56,6 +56,40 @@ class EvidenceInfo(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+class AudioComparisonWitness(BaseModel):
+    """Schema for witness information in audio comparison."""
+    id: str
+    witnessName: str
+    witnessImage: str
+    audioId: str
+    summary: str
+    transcript: str
+    contradictions: List[str]
+    similarities: List[str]
+    grayAreas: List[str]
+
+
+class DetailedAnalysis(BaseModel):
+    """Schema for detailed analysis of audio comparison."""
+    topic: str
+    witness1: str
+    witness2: str
+    status: str  # "contradiction", "similarity", "gray_area"
+    details: str
+
+
+class AudioComparisonInfo(BaseModel):
+    """Schema for audio comparison information in case response."""
+    id: str
+    caseId: str
+    mediaId1: str
+    mediaId2: str
+    witnesses: List[AudioComparisonWitness]
+    detailedAnalysis: List[DetailedAnalysis]
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 class CaseResponse(BaseModel):
     """Schema for case response with flattened structure."""
     id: str
@@ -71,6 +105,7 @@ class CaseResponse(BaseModel):
     location: str
     media: Optional[List[MediaInfo]] = None
     evidence: Optional[List[EvidenceInfo]] = None
+    audioComparisons: Optional[List[AudioComparisonInfo]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     
