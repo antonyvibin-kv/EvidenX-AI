@@ -15,7 +15,8 @@ from app.schemas.audio import (
     AudioFileInfo,
     TranscriptionJob,
     AudioTranscriptionResponse,
-    AudioUploadResponse
+    AudioUploadResponse,
+    AudioInfo
 )
 
 logger = logging.getLogger(__name__)
@@ -597,3 +598,47 @@ class AudioService:
         except Exception as e:
             self.logger.error(f"Failed to get transcripts for case {case_id}: {str(e)}")
             return []
+    
+    async def get_audio_by_case_and_url(self, case_id: str, url: str) -> Optional[dict]:
+        """Get audio file by case_id and url."""
+        try:
+            result = self.client.table('audio_files').select('*').eq('case_id', case_id).eq('url', url).execute()
+            if result.data:
+                return result.data[0]
+            return None
+        except Exception as e:
+            self.logger.error(f"Failed to get audio by case and url: {str(e)}")
+            return None
+    
+    async def create_audio_analysis_record(
+        self,
+        case_id: str,
+        url: str,
+        audio_info: AudioInfo
+    ) -> bool:
+        """Create a new audio analysis record."""
+        try:
+            file_id = str(uuid.uuid4())
+            
+            insert_data = {
+                'id': file_id,
+                'case_id': case_id,
+                'url': url,
+                'audio_info': audio_info.dict(),
+                'filename': f"audio_analysis_{case_id}",
+                'size': 0,  # Unknown size for URL-based audio
+                'content_type': 'audio/unknown',
+                's3_key': '',  # No S3 key for URL-based audio
+                'user_id': 'system'  # System-generated record
+            }
+            
+            result = self.client.table('audio_files').insert(insert_data).execute()
+            
+            if result.data:
+                self.logger.info(f"Audio analysis record created: {file_id}")
+                return True
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create audio analysis record: {str(e)}")
+            return False

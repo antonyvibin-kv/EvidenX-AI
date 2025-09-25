@@ -164,7 +164,7 @@ async def download_file(file_id: str, current_user: dict = Depends(get_current_u
         # Generate presigned URL for download
         download_url = s3_service.generate_presigned_url(
             file_data["object_name"],
-            expiration=3600  # 1 hour
+            expiration=604800  # 7 days
         )
         
         return {
