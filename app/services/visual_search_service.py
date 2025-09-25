@@ -11,7 +11,8 @@ from transformers import (
     Owlv2Processor,
     Owlv2ForObjectDetection,
 )
-from app.core.config import settings
+
+# from app.core.config import settings
 
 
 class VisualSearch:
@@ -22,11 +23,11 @@ class VisualSearch:
         # self.model =  AutoModelForZeroShotObjectDetection.from_pretrained(self.model_id).to(device)
         # self.processor = AutoProcessor.from_pretrained(self.model_id)
         self.processor = Owlv2Processor.from_pretrained(
-            "google/owlv2-base-patch16-ensemble", token=settings.hf_token, use_fast=True
+            "google/owlv2-base-patch16-ensemble", token="", use_fast=True
         )
         self.model = Owlv2ForObjectDetection.from_pretrained(
             "google/owlv2-base-patch16-ensemble",
-            token=settings.hf_token,
+            token="",
         )
         print("Model loading completed!")
 
