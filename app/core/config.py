@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     # OpenAI Configuration
     openai_api_key: str = Field(default="", description="OpenAI API key for transcript analysis")
     
+    # HF Token
+    hf_token: str = Field(
+        default="", description="Hugging Face token for video "
+    )
     class Config:
         env_file = ".env"
         case_sensitive = False
