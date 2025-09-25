@@ -629,7 +629,7 @@ class AudioService:
                 'size': 0,  # Unknown size for URL-based audio
                 'content_type': 'audio/unknown',
                 's3_key': '',  # No S3 key for URL-based audio
-                'user_id': 'system'  # System-generated record
+                'user_id': '00000000-0000-0000-0000-000000000000'  # System user ID
             }
             
             result = self.client.table('audio_files').insert(insert_data).execute()
@@ -641,4 +641,72 @@ class AudioService:
             
         except Exception as e:
             self.logger.error(f"Failed to create audio analysis record: {str(e)}")
+            return False
+
+    async def save_audio_to_media_table(
+        self, 
+        media_id: str, 
+        case_id: str, 
+        url: str, 
+        transcript: str, 
+        title: str, 
+        summary: str,
+        duration: Optional[str] = None,
+        speakers: Optional[int] = None,
+        confidence: Optional[float] = None,
+        follow_up_questions: Optional[List[str]] = None
+    ) -> bool:
+        """
+        Save audio information to the media table.
+        
+        Args:
+            media_id: Unique media identifier
+            case_id: Case identifier
+            url: Audio file URL
+            transcript: Transcribed text
+            title: AI-generated title
+            summary: AI-generated summary
+            duration: Audio duration
+            speakers: Number of speakers
+            confidence: Transcription confidence
+            follow_up_questions: AI-generated follow-up questions
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            from app.services.openai_service import get_openai_service
+            
+            # Prepare media info JSON
+            media_info = {
+                "type": "audio",
+                "url": url,
+                "title": title,
+                "description": summary,  # Use summary as description
+                "transcript": transcript,
+                "fileSize": "Unknown",  # We don't have file size for URL-based audio
+                "format": "audio",
+                "uploadDate": datetime.now().strftime("%Y-%m-%d"),
+                "duration": duration,
+                "speakers": speakers,
+                "confidence": int(confidence * 100) if confidence else None,
+                "follow_up_questions": follow_up_questions or []
+            }
+            
+            # Insert into media table
+            insert_data = {
+                'id': media_id,
+                'case_id': case_id,
+                'media_info': media_info
+            }
+            
+            result = self.client.table('media').insert(insert_data).execute()
+            
+            if result.data:
+                self.logger.info(f"Audio media record created: {media_id} for case {case_id}")
+                return True
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Failed to save audio to media table: {str(e)}")
             return False

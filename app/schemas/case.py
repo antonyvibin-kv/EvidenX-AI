@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -17,6 +17,29 @@ class CaseInfo(BaseModel):
     location: str
 
 
+class MediaInfo(BaseModel):
+    """Schema for media information in case response."""
+    id: str
+    type: str
+    url: str
+    title: str
+    description: str
+    fileSize: Optional[str] = None
+    format: Optional[str] = None
+    uploadDate: Optional[str] = None
+    duration: Optional[str] = None
+    transcript: Optional[str] = None
+    speakers: Optional[int] = None
+    confidence: Optional[int] = None
+    resolution: Optional[str] = None
+    fps: Optional[int] = None
+    thumbnail: Optional[str] = None
+    camera: Optional[str] = None
+    location: Optional[str] = None
+    pages: Optional[int] = None
+    author: Optional[str] = None
+
+
 class CaseResponse(BaseModel):
     """Schema for case response with flattened structure."""
     id: str
@@ -30,6 +53,7 @@ class CaseResponse(BaseModel):
     status: str
     visibility: str
     location: str
+    media: Optional[List[MediaInfo]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     

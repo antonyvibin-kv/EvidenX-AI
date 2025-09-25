@@ -231,3 +231,37 @@ class AudioAnalyzeResponse(BaseModel):
     url: str = Field(..., description="URL of the analyzed audio file")
     transcript: str = Field(..., description="Transcribed text from the audio")
     follow_up_questions: List[str] = Field(..., description="AI-generated follow-up questions")
+
+
+class AudioMediaCreate(BaseModel):
+    """Schema for creating media entry from audio processing."""
+    id: str = Field(..., description="Media ID")
+    case_id: str = Field(..., description="Case ID")
+    url: str = Field(..., description="Audio file URL")
+    transcript: str = Field(..., description="Transcribed text")
+    title: str = Field(..., description="AI-generated title")
+    summary: str = Field(..., description="AI-generated summary")
+    duration: Optional[str] = Field(None, description="Audio duration")
+    speakers: Optional[int] = Field(None, description="Number of speakers")
+    confidence: Optional[float] = Field(None, description="Transcription confidence")
+    follow_up_questions: Optional[List[str]] = Field(None, description="AI-generated follow-up questions")
+
+
+class AudioMediaResponse(BaseModel):
+    """Response model for audio media."""
+    id: str = Field(..., description="Media ID")
+    case_id: str = Field(..., description="Case ID")
+    type: str = Field(default="audio", description="Media type")
+    url: str = Field(..., description="Audio file URL")
+    title: str = Field(..., description="AI-generated title")
+    summary: str = Field(..., description="AI-generated summary")
+    transcript: str = Field(..., description="Transcribed text")
+    duration: Optional[str] = Field(None, description="Audio duration")
+    speakers: Optional[int] = Field(None, description="Number of speakers")
+    confidence: Optional[float] = Field(None, description="Transcription confidence")
+    follow_up_questions: Optional[List[str]] = Field(None, description="AI-generated follow-up questions")
+    created_at: Optional[datetime] = Field(None, description="Creation timestamp")
+    updated_at: Optional[datetime] = Field(None, description="Update timestamp")
+    
+    class Config:
+        from_attributes = True
