@@ -94,7 +94,7 @@ app.include_router(audio.router, prefix="/api/v1/audio", tags=["Audio Transcript
 app.include_router(cases.router, prefix="/api/v1/cases", tags=["Cases"])
 app.include_router(evidence.router, prefix="/api/v1/evidence", tags=["Evidence"])
 app.include_router(case_timeline.router, prefix="/api/v1/timeline", tags=["Case Timeline"])
-app.include_router(ai_service.router, prefix="/api/v1/ai_visual_inference", tags=["AI Visual Inference"])
+app.include_router(ai_service.router, prefix="/api/v1/video/search", tags=["AI Visual Inference"])
 
 
 if __name__ == "__main__":

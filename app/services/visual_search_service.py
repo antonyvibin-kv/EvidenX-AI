@@ -6,6 +6,7 @@ import os
 from PIL import Image
 import numpy as np
 import os
+from app.core.config import settings
 from transformers import (
     AutoProcessor,
     AutoModelForZeroShotObjectDetection,
@@ -24,11 +25,11 @@ class VisualSearch:
         # self.model =  AutoModelForZeroShotObjectDetection.from_pretrained(self.model_id).to(device)
         # self.processor = AutoProcessor.from_pretrained(self.model_id)
         self.processor = Owlv2Processor.from_pretrained(
-            "google/owlv2-base-patch16-ensemble", token="", use_fast=True
+            "google/owlv2-base-patch16-ensemble", token=settings.hf_token
         )
         self.model = Owlv2ForObjectDetection.from_pretrained(
             "google/owlv2-base-patch16-ensemble",
-            token="",
+            token=settings.hf_token,
         )
         print("Model loading completed!")
 
@@ -50,7 +51,7 @@ class VisualSearch:
             tuple: (frame (PIL.Image), frame_index (int), timestamp (float))
         """
         fps = cap.get(cv2.CAP_PROP_FPS) or 30
-        frames_per_minute = int(fps * 60)
+        frames_per_minute = int(fps * (60/2)) # half for 30 sec
         frame_idx = 0
         frames_list = []
         while True:
@@ -171,7 +172,12 @@ class VisualSearch:
         count_frame = 0
         print(f"Processing key frames!!")
         frames = self.extract_keyframe_per_minute(video)
-
+        detections = {
+                "data": ["found a match in following timestamps"],
+                "timestamps": set(),
+                "timestamp_details": [],
+            }
+        
         for frame, frame_id, timestamp in frames:
             count_frame += 1
             print("Inside for loop")
@@ -194,6 +200,7 @@ class VisualSearch:
             if not result:
                 continue
             save = False
+            box_list = []
             for box, score, labels in zip(
                 result["boxes"], result["scores"], result["labels"]
             ):
@@ -202,6 +209,17 @@ class VisualSearch:
                 print(
                     f"Detected {labels} with confidence {round(score.item(), 3)} at location {box} in {timestamp}"
                 )
+                box_list.append(box)
+                detections["timestamps"].add(timestamp)
+            if box_list:
+                detections["timestamp_details"].append({
+                "time": timestamp,
+                "type": "person",
+                "label": "",
+                "color": "",
+                "bounding_box": box_list[0]
+                # "confidence": score.item(),
+})
             if save:
                 output_file = self.save_frame_with_boxes(
                     frame.copy(),
@@ -214,6 +232,8 @@ class VisualSearch:
         print(
             f"Completed visual search for {count_frame} frames in {time.time()-start_time:2f}secs!!"
         )
+        detections["timestamps"] = list(detections["timestamps"])
+        return detections
 
 
 # Test code

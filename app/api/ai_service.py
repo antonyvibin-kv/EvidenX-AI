@@ -50,10 +50,10 @@ def cleanup_temp_file(file_path: str):
         logger.warning(f"Failed to cleanup temp file {file_path}: {e}")
 
 
-@router.post("/visual-search", response_model=VisualSearchResponse)
+@router.post("/visual-search")
 async def perform_visual_search(
-    request: VisualSearchRequest,
-    background_tasks: BackgroundTasks
+    url: str,
+    prompt: str
 ):
     """
     Perform visual search on a video using AI object detection.
@@ -64,26 +64,17 @@ async def perform_visual_search(
     temp_video_path = None
     
     try:
-        logger.info(f"Starting visual search for query: '{request.user_query}' on video: {request.s3_url}")
+        logger.info(f"Starting visual search for query: '{prompt}' on video: {url}")
         
         # Download video from S3
         # temp_video_path = await download_video_from_s3(str(request.s3_url))\
         detections = []
         visual_searcher = VisualSearch()
         current_dir = os.getcwd()
-        video_location = os.path.join(current_dir, "app", "storage", "short_cctv.mp4")
-        start_time = time.time()
-        detections = visual_searcher.fetch_timestamp(request.user_query, video_location)
-        detections = [] # pr_delete
-        processing_time = time.time() - start_time
-        return VisualSearchResponse(
-            query=request.user_query,
-            video_url=str(request.s3_url),
-            total_frames_processed=len(detections),
-            processing_time=processing_time,
-            detections=detections,
-            created_at=datetime.utcnow()
-        )
+        video_path = url + '.mp4'
+        video_location = os.path.join(current_dir, "app", "storage", video_path)
+        detections = visual_searcher.fetch_timestamp(prompt, video_location)
+        return detections
     except HTTPException:
         raise
     except Exception as e:
