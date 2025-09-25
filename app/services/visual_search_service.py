@@ -5,6 +5,7 @@ import time
 import os
 from PIL import Image
 import numpy as np
+import os
 from transformers import (
     AutoProcessor,
     AutoModelForZeroShotObjectDetection,
@@ -217,4 +218,19 @@ class VisualSearch:
 
 # Test code
 visual_searcher = VisualSearch()
-visual_searcher.fetch_timestamp("girl with pink shirt", "short_cctv.mp4")
+# visual_searcher.fetch_timestamp("girl with pink shirt", "short_cctv.mp4")
+
+
+if __name__ == "__main__":
+    visual_searcher = VisualSearch()
+    current_dir = os.getcwd()
+    video_location = os.path.join(current_dir, "app", "storage", "short_cctv.mp4")
+    print(f"Looking for video at: {video_location}")
+    
+    # Check if file exists before processing
+    if os.path.exists(video_location):
+        print("Video file found!")
+        visual_searcher.fetch_timestamp("girl with pink shirt", video_location)
+    else:
+        print(f"Error: Video file not found at {video_location}")
+        print("Please check if the video file exists in the correct location.")

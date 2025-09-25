@@ -39,11 +39,14 @@ venv.bak/
 *.swp
 *.swo
 *~
+*.mp4
 
 # OS
 .DS_Store
 Thumbs.db
-
+*.jpg
+*.png
+*.mp4
 # Logs
 *.log
 logs/
