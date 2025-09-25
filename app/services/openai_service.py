@@ -173,14 +173,14 @@ Focus on factual comparisons and be specific with quotes. Include 8-12 compariso
     
     async def generate_follow_up_questions(
         self, 
-        analysis_result: Dict[str, Any], 
+        transcript: str, 
         case_id: str
     ) -> List[str]:
         """
-        Generate additional follow-up questions based on the analysis.
+        Generate additional follow-up questions based on the transcript.
         
         Args:
-            analysis_result: Previous analysis results
+            transcript: The transcribed text
             case_id: Case identifier
             
         Returns:
@@ -188,18 +188,12 @@ Focus on factual comparisons and be specific with quotes. Include 8-12 compariso
         """
         try:
             prompt = f"""
-Based on the following analysis of case {case_id}, generate 5 additional specific follow-up questions that would help clarify the contradictions and gray areas identified.
+Based on the following audio transcript from case {case_id}, generate 5 specific follow-up questions that would help clarify the situation and gather more information.
 
-ANALYSIS SUMMARY:
-{analysis_result.get('summary', 'No summary available')}
+TRANSCRIPT:
+{transcript}
 
-CONTRADICTIONS:
-{json.dumps(analysis_result.get('contradictions', []), indent=2)}
-
-GRAY AREAS:
-{json.dumps(analysis_result.get('gray_areas', []), indent=2)}
-
-Please provide 5 specific, actionable follow-up questions that would help resolve the identified issues. Format as a JSON array of strings.
+Please provide 5 specific, actionable follow-up questions that would help resolve any ambiguities or gather additional details. Format as a JSON array of strings.
 """
             
             response = self.client.chat.completions.create(
@@ -242,3 +236,68 @@ Please provide 5 specific, actionable follow-up questions that would help resolv
         except Exception as e:
             logger.error(f"Failed to generate follow-up questions for case {case_id}: {str(e)}")
             return ["Unable to generate additional questions due to an error"]
+
+    async def generate_audio_title_and_summary(self, transcript: str, case_id: str) -> tuple[str, str]:
+        """
+        Generate a title and summary for audio transcript using OpenAI.
+        
+        Args:
+            transcript: The transcribed text from the audio
+            case_id: The case ID for context
+            
+        Returns:
+            tuple: (title, summary)
+        """
+        try:
+            prompt = f"""
+            Based on the following audio transcript from a legal case investigation, generate:
+            1. A concise, descriptive title (max 50 characters)
+            2. A brief summary (max 200 characters)
+            
+            Transcript: {transcript}
+            
+            Please respond in the following JSON format:
+            {{
+                "title": "Brief descriptive title",
+                "summary": "Brief summary of the content"
+            }}
+            """
+            
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are an AI assistant that helps generate titles and summaries for legal investigation audio transcripts. Be concise and professional."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=300
+            )
+            
+            content = response.choices[0].message.content.strip()
+            logger.info(f"Generated title and summary for case {case_id}")
+            
+            # Parse JSON response
+            try:
+                import json
+                result = json.loads(content)
+                title = result.get("title", "Audio Recording")
+                summary = result.get("summary", "Audio recording from investigation")
+                return title, summary
+            except json.JSONDecodeError:
+                # Fallback if JSON parsing fails
+                lines = content.split('\n')
+                title = "Audio Recording"
+                summary = "Audio recording from investigation"
+                
+                for line in lines:
+                    line = line.strip()
+                    if 'title' in line.lower():
+                        title = line.split(':', 1)[-1].strip().strip('"\'')
+                    elif 'summary' in line.lower():
+                        summary = line.split(':', 1)[-1].strip().strip('"\'')
+                
+                return title, summary
+                
+        except Exception as e:
+            logger.error(f"Failed to generate title and summary for case {case_id}: {str(e)}")
+            return "Audio Recording", "Audio recording from investigation"

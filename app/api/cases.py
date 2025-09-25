@@ -1,10 +1,49 @@
 from fastapi import APIRouter, HTTPException, status
-from app.schemas.case import CaseResponse, CaseCreate, CaseUpdate
+from app.schemas.case import CaseResponse, CaseCreate, CaseUpdate, MediaInfo
 from app.core.database import supabase_client
 import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+async def get_media_for_case(case_id: str) -> list[MediaInfo]:
+    """Get media information for a specific case."""
+    try:
+        client = supabase_client.get_client()
+        
+        response = client.table("media").select("*").eq("case_id", case_id).order("created_at", desc=True).execute()
+        
+        media_list = []
+        for media_data in response.data:
+            media_info = media_data["media_info"]
+            media_list.append(MediaInfo(
+                id=media_data["id"],
+                type=media_info["type"],
+                url=media_info["url"],
+                title=media_info["title"],
+                description=media_info["description"],
+                fileSize=media_info.get("fileSize"),
+                format=media_info.get("format"),
+                uploadDate=media_info.get("uploadDate"),
+                duration=media_info.get("duration"),
+                transcript=media_info.get("transcript"),
+                speakers=media_info.get("speakers"),
+                confidence=media_info.get("confidence"),
+                resolution=media_info.get("resolution"),
+                fps=media_info.get("fps"),
+                thumbnail=media_info.get("thumbnail"),
+                camera=media_info.get("camera"),
+                location=media_info.get("location"),
+                pages=media_info.get("pages"),
+                author=media_info.get("author")
+            ))
+        
+        return media_list
+        
+    except Exception as e:
+        logger.error(f"Error fetching media for case {case_id}: {e}")
+        return []
 
 
 @router.get("/", response_model=list[CaseResponse])
@@ -18,6 +57,10 @@ async def get_cases():
         cases = []
         for case_data in response.data:
             case_info = case_data["case_info"]
+            
+            # Get media for this case
+            media = await get_media_for_case(case_data["id"])
+            
             cases.append(CaseResponse(
                 id=case_data["id"],
                 firNumber=case_info["firNumber"],
@@ -30,6 +73,7 @@ async def get_cases():
                 status=case_info["status"],
                 visibility=case_info["visibility"],
                 location=case_info["location"],
+                media=media,
                 created_at=case_data.get("created_at"),
                 updated_at=case_data.get("updated_at")
             ))
@@ -61,6 +105,9 @@ async def get_case_by_id(case_id: str):
         case_data = response.data[0]
         case_info = case_data["case_info"]
         
+        # Get media for this case
+        media = await get_media_for_case(case_data["id"])
+        
         return CaseResponse(
             id=case_data["id"],
             firNumber=case_info["firNumber"],
@@ -73,6 +120,7 @@ async def get_case_by_id(case_id: str):
             status=case_info["status"],
             visibility=case_info["visibility"],
             location=case_info["location"],
+            media=media,
             created_at=case_data.get("created_at"),
             updated_at=case_data.get("updated_at")
         )

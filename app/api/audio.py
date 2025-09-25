@@ -1,12 +1,10 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, BackgroundTasks, Form
 from fastapi.responses import JSONResponse
 from typing import Optional, List, Dict
 from datetime import datetime
 import uuid
 import time
 import logging
-import os
-import glob
 
 from app.schemas.audio import (
     AudioTranscriptionRequest,
@@ -18,7 +16,10 @@ from app.schemas.audio import (
     CaseTranscriptsResponse,
     SpeakerDiarizationConfig,
     TranscriptAnalysis,
-    ComparisonItem
+    ComparisonItem,
+    AudioAnalyzeRequest,
+    AudioAnalyzeResponse,
+    AudioInfo
 )
 from app.services.deepgram_service import DeepgramService
 from app.services.audio_service import AudioService
@@ -26,8 +27,7 @@ from app.services.openai_service import OpenAIService
 from app.core.config import settings
 from app.api.auth import get_current_user
 
-# In-memory storage for temp file paths (in production, use Redis or database)
-temp_file_storage = {}
+# No longer needed - using S3 for file storage
 
 logger = logging.getLogger(__name__)
 
@@ -50,86 +50,6 @@ def get_deepgram_service() -> DeepgramService:
             )
         deepgram_service = DeepgramService(settings.deepgram_api_key)
     return deepgram_service
-
-
-@router.post("/upload", 
-             response_model=AudioUploadResponse,
-             summary="Upload Audio File",
-             description="Upload an audio file for transcription. Supports various audio formats including WAV, MP3, MP4, M4A, FLAC, OGG, WEBM, AAC, M4B, 3GP, and AMR.",
-             tags=["Audio Upload"])
-async def upload_audio_file(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(..., description="Audio file to upload (max 2GB recommended)"),
-    # current_user: dict = Depends(get_current_user)  # Disabled for testing
-):
-    """
-    Upload an audio file for transcription.
-    
-    **Supported Formats:**
-    - WAV, MP3, MP4, M4A, FLAC, OGG, WEBM, AAC, M4B, 3GP, AMR
-    
-    **File Size:**
-    - Maximum: 2GB
-    - Recommended: Under 50MB for optimal performance
-    
-    **Returns:**
-    - File ID for use in transcription requests
-    - File metadata (size, type, etc.)
-    """
-    try:
-        # Validate file (more lenient for testing)
-        if file.content_type and not file.content_type.startswith('audio/'):
-            # Check if it's a known audio file by extension
-            audio_extensions = ['.wav', '.mp3', '.mp4', '.m4a', '.flac', '.ogg', '.webm', '.aac', '.m4b', '.3gp', '.amr']
-            file_ext = '.' + file.filename.lower().split('.')[-1] if '.' in file.filename else ''
-            if file_ext not in audio_extensions:
-                raise HTTPException(
-                    status_code=400,
-                    detail="File must be an audio file"
-                )
-        
-        # Read file data
-        audio_data = await file.read()
-        
-        # Validate with Deepgram service
-        deepgram = get_deepgram_service()
-        validation_result = await deepgram.validate_audio_file(audio_data, file.filename)
-        
-        # Log file size for debugging
-        file_size_mb = len(audio_data) / (1024 * 1024)
-        logger.info(f"Audio file size: {file_size_mb:.2f} MB")
-        
-        if file_size_mb > 50:
-            logger.warning(f"Large audio file detected ({file_size_mb:.2f} MB). This may cause timeout issues. Consider using a smaller file for testing.")
-        
-        # Store audio data temporarily for processing
-        # In production, you'd store this in S3 or local storage
-        import tempfile
-        import os
-        
-        # Create a temporary file to store the audio data
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f".{file.filename.split('.')[-1]}")
-        temp_file.write(audio_data)
-        temp_file.close()
-        
-        # Upload to database
-        upload_response = await audio_service.upload_audio_file(
-            filename=file.filename,
-            content_type=file.content_type,
-            size=len(audio_data)
-            # No user_id for testing
-        )
-        
-        # Store temp file path in memory
-        temp_file_storage[upload_response.file_id] = temp_file.name
-        
-        logger.info(f"Audio file uploaded: {file.filename} ({len(audio_data)} bytes)")
-        
-        return upload_response
-        
-    except Exception as e:
-        logger.error(f"File upload failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @router.post("/transcribe/{file_id}", 
@@ -210,37 +130,14 @@ async def process_transcription(
         # Get Deepgram service
         deepgram = get_deepgram_service()
         
-        # Get the actual audio file data from the temp file storage
+        # Get the actual audio file data from S3
         try:
-            # Get temp file path from in-memory storage
-            temp_file_path = temp_file_storage.get(file_id)
-            if not temp_file_path:
-                logger.warning(f"Temp file not found in memory for {file_id}, checking if file exists...")
-                # Try to find the temp file by searching common temp directories
-                temp_patterns = [
-                    f"/tmp/tmp*{file_id}*",
-                    f"/tmp/tmp*{file_id.split('-')[0]}*",
-                    f"/tmp/*{file_id}*"
-                ]
-                for pattern in temp_patterns:
-                    matches = glob.glob(pattern)
-                    if matches:
-                        temp_file_path = matches[0]
-                        temp_file_storage[file_id] = temp_file_path
-                        logger.info(f"Found temp file: {temp_file_path}")
-                        break
-                
-                if not temp_file_path:
-                    raise Exception(f"Audio file not found for {file_id}. Please re-upload the file.")
+            # Get audio data from S3
+            audio_data = await audio_service.get_audio_data_from_s3(file_id)
+            if not audio_data:
+                raise Exception(f"Audio file not found in S3 for {file_id}. Please re-upload the file.")
             
-            if not os.path.exists(temp_file_path):
-                raise Exception(f"Audio file not found at {temp_file_path}")
-            
-            # Read the actual audio data from the temp file
-            with open(temp_file_path, 'rb') as f:
-                audio_data = f.read()
-            
-            logger.info(f"Read audio data: {len(audio_data)} bytes from {temp_file_path}")
+            logger.info(f"Downloaded audio data: {len(audio_data)} bytes from S3")
             
             # Get audio file info for filename
             audio_file_info = await audio_service.get_audio_file_info(file_id)
@@ -248,7 +145,7 @@ async def process_transcription(
                 raise Exception(f"Audio file {file_id} not found in database")
             
         except Exception as e:
-            logger.error(f"Failed to get audio file data: {e}")
+            logger.error(f"Failed to get audio file data from S3: {e}")
             raise Exception(f"Cannot process transcription: {e}")
         
         await audio_service.update_transcription_job(
@@ -285,15 +182,50 @@ async def process_transcription(
             transcription_result=result
         )
         
-        # Clean up temp file
+        # Also save to media table if we have case information
         try:
-            temp_file_path = temp_file_storage.get(file_id)
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.unlink(temp_file_path)
-                del temp_file_storage[file_id]
-                logger.info(f"Cleaned up temp file: {temp_file_path}")
-        except Exception as cleanup_error:
-            logger.warning(f"Failed to cleanup temp file: {cleanup_error}")
+            # Get job details to extract case_id if available
+            job_details = await audio_service.get_transcription_job(job_id)
+            if job_details and hasattr(job_details, 'case_id') and job_details.case_id:
+                # Generate title and summary with OpenAI
+                from app.services.openai_service import OpenAIService
+                openai_service = OpenAIService()
+                
+                title, summary = await openai_service.generate_audio_title_and_summary(
+                    transcript=result.transcript,
+                    case_id=job_details.case_id
+                )
+                
+                # Generate follow-up questions
+                follow_up_questions = await openai_service.generate_follow_up_questions(
+                    transcript=result.transcript,
+                    case_id=job_details.case_id
+                )
+                
+                # Get audio file info for URL
+                audio_file_info = await audio_service.get_audio_file_info(file_id)
+                audio_url = audio_file_info.get('s3_key', '') if audio_file_info else ''
+                
+                # Save to media table
+                import uuid
+                media_id = str(uuid.uuid4())
+                await audio_service.save_audio_to_media_table(
+                    media_id=media_id,
+                    case_id=job_details.case_id,
+                    url=audio_url,
+                    transcript=result.transcript,
+                    title=title,
+                    summary=summary,
+                    duration=result.duration,
+                    speakers=len(result.speakers),
+                    confidence=result.confidence,
+                    follow_up_questions=follow_up_questions
+                )
+                logger.info(f"Audio saved to media table for case {job_details.case_id}")
+        except Exception as e:
+            logger.warning(f"Failed to save to media table: {e}")
+        
+        # No cleanup needed - files are stored in S3
         
         logger.info(f"Transcription completed for job: {job_id}")
         
@@ -305,14 +237,7 @@ async def process_transcription(
             error_message=str(e)
         )
         
-        # Clean up temp file even on failure
-        try:
-            temp_file_path = temp_file_storage.get(file_id)
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.unlink(temp_file_path)
-                del temp_file_storage[file_id]
-        except Exception as cleanup_error:
-            logger.warning(f"Failed to cleanup temp file after error: {cleanup_error}")
+        # No cleanup needed - files are stored in S3
 
 
 @router.get("/jobs/{job_id}", 
@@ -743,3 +668,189 @@ async def debug_case_data(case_id: str):
             "error": str(e),
             "case_id": case_id
         }
+
+
+@router.post("/analyze", 
+            response_model=AudioAnalyzeResponse,
+            summary="Analyze Audio File",
+            description="Analyze an audio file by URL and case ID. Returns transcript and follow-up questions. Checks for existing analysis first.",
+            tags=["Audio Analysis"])
+async def analyze_audio(
+    request: AudioAnalyzeRequest,
+    # current_user: dict = Depends(get_current_user)  # Disabled for testing
+):
+    """
+    Analyze an audio file by URL and case ID.
+    
+    **Features:**
+    - Checks for existing analysis first
+    - Downloads audio from URL if needed
+    - Performs Deepgram transcription
+    - Generates follow-up questions with OpenAI
+    - Stores results in database for future use
+    
+    **Parameters:**
+    - `case_id`: Case identifier
+    - `url`: URL of the audio file to analyze
+    
+    **Returns:**
+    - URL of the analyzed audio file
+    - Full transcript with speaker identification
+    - AI-generated follow-up questions
+    """
+    try:
+        # Check if analysis already exists
+        existing_audio = await audio_service.get_audio_by_case_and_url(
+            case_id=request.case_id,
+            url=request.url
+        )
+        
+        if existing_audio and existing_audio.get('audio_info'):
+            # Return existing analysis
+            audio_info = existing_audio['audio_info']
+            logger.info(f"Returning existing analysis for case {request.case_id}")
+            
+            return AudioAnalyzeResponse(
+                url=request.url,
+                transcript=audio_info['transcript'],
+                follow_up_questions=audio_info['follow_up_questions']
+            )
+        
+        # Download audio from URL
+        logger.info(f"Downloading audio from URL: {request.url}")
+        import requests as http_requests
+        
+        try:
+            audio_response = http_requests.get(request.url, timeout=30)
+            audio_response.raise_for_status()
+            audio_data = audio_response.content
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to download audio from URL: {str(e)}"
+            )
+        
+        # Extract filename from URL for proper format detection
+        import urllib.parse
+        parsed_url = urllib.parse.urlparse(request.url)
+        filename = parsed_url.path.split('/')[-1] if parsed_url.path else "audio_file"
+        
+        # If no extension, try to detect from content type
+        if '.' not in filename:
+            content_type = audio_response.headers.get('content-type', '')
+            if 'audio/mp3' in content_type:
+                filename += '.mp3'
+            elif 'audio/wav' in content_type:
+                filename += '.wav'
+            elif 'audio/mp4' in content_type or 'audio/m4a' in content_type:
+                filename += '.m4a'
+            else:
+                filename += '.mp3'  # Default fallback
+        
+        # Validate audio with Deepgram
+        deepgram = get_deepgram_service()
+        validation_result = await deepgram.validate_audio_file(audio_data, filename)
+        
+        # Perform transcription
+        logger.info("Starting Deepgram transcription...")
+        transcription_request = AudioTranscriptionRequest(
+            language="en",
+            model="nova-2",
+            diarize=True,
+            punctuate=True,
+            smart_format=True,
+            case_id=request.case_id
+        )
+        
+        # Configure speaker diarization
+        diarization_config = SpeakerDiarizationConfig(
+            min_speakers=2,
+            max_speakers=10,
+            speaker_change_sensitivity=0.5,
+            enable_speaker_embedding=True
+        )
+        
+        # Perform transcription
+        transcription_result = await deepgram.transcribe_audio(
+            audio_data=audio_data,
+            filename=filename,
+            request=transcription_request,
+            diarization_config=diarization_config
+        )
+        
+        # Generate follow-up questions with OpenAI
+        logger.info("Generating follow-up questions with OpenAI...")
+        try:
+            openai_service = OpenAIService()
+            follow_up_questions = await openai_service.generate_follow_up_questions(
+                transcript=transcription_result.transcript,
+                case_id=request.case_id
+            )
+        except Exception as e:
+            logger.warning(f"Failed to generate follow-up questions: {e}")
+            # Fallback to basic questions
+            follow_up_questions = [
+                "Can you provide more details about what happened?",
+                "What was the sequence of events?",
+                "Were there any other people present?",
+                "What was the exact time this occurred?",
+                "Can you describe the location in more detail?"
+            ]
+        
+        # Generate title and summary with OpenAI
+        logger.info("Generating title and summary with OpenAI...")
+        try:
+            title, summary = await openai_service.generate_audio_title_and_summary(
+                transcript=transcription_result.transcript,
+                case_id=request.case_id
+            )
+        except Exception as e:
+            logger.warning(f"Failed to generate title and summary: {e}")
+            title = "Audio Recording"
+            summary = "Audio recording from investigation"
+        
+        # Create audio info object
+        audio_info = AudioInfo(
+            transcript=transcription_result.transcript,
+            follow_up_questions=follow_up_questions
+        )
+        
+        # Store in database (both audio_files and media tables)
+        await audio_service.create_audio_analysis_record(
+            case_id=request.case_id,
+            url=request.url,
+            audio_info=audio_info
+        )
+        
+        # Save to media table
+        import uuid
+        media_id = str(uuid.uuid4())
+        await audio_service.save_audio_to_media_table(
+            media_id=media_id,
+            case_id=request.case_id,
+            url=request.url,
+            transcript=transcription_result.transcript,
+            title=title,
+            summary=summary,
+            duration=transcription_result.duration,
+            speakers=len(transcription_result.speakers),
+            confidence=transcription_result.confidence,
+            follow_up_questions=follow_up_questions
+        )
+        
+        logger.info(f"Audio analysis completed for case {request.case_id}")
+        
+        return AudioAnalyzeResponse(
+            url=request.url,
+            transcript=transcription_result.transcript,
+            follow_up_questions=follow_up_questions
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Audio analysis failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Audio analysis failed: {str(e)}"
+        )

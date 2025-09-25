@@ -132,14 +132,27 @@ class AudioTranscriptionResponse(BaseModel):
         }
 
 
+class AudioUploadRequest(BaseModel):
+    """Request model for audio file upload with media information."""
+    case_id: str = Field(..., description="Case identifier")
+    title: Optional[str] = Field(None, description="Title for the audio file")
+    description: Optional[str] = Field(None, description="Description of the audio file")
+    type: str = Field(default="audio", description="Media type (audio, video, etc.)")
+    tags: Optional[List[str]] = Field(None, description="Tags for categorization")
+    location: Optional[str] = Field(None, description="Location where audio was recorded")
+    author: Optional[str] = Field(None, description="Author/recorder of the audio")
+
+
 class AudioUploadResponse(BaseModel):
     """Response model for audio file upload."""
     file_id: str = Field(..., description="Unique file identifier")
     filename: str = Field(..., description="Original filename")
     size: int = Field(..., description="File size in bytes")
     content_type: str = Field(..., description="MIME type of the file")
+    s3_key: str = Field(..., description="S3 object key for the uploaded file")
     upload_url: Optional[str] = Field(None, description="URL to access the uploaded file")
     transcription_id: Optional[str] = Field(None, description="ID of the transcription job")
+    media_id: Optional[str] = Field(None, description="Media table record ID")
 
 
 class TranscriptionJob(BaseModel):
@@ -155,12 +168,22 @@ class TranscriptionJob(BaseModel):
     completed_at: Optional[datetime] = Field(None, description="Job completion timestamp")
 
 
+class AudioInfo(BaseModel):
+    """Schema for audio analysis information stored in JSON column."""
+    transcript: str = Field(..., description="Transcribed text from the audio")
+    follow_up_questions: List[str] = Field(..., description="AI-generated follow-up questions")
+
+
 class AudioFileInfo(BaseModel):
     """Information about an uploaded audio file."""
     file_id: str = Field(..., description="Unique file identifier")
     filename: str = Field(..., description="Original filename")
     size: int = Field(..., description="File size in bytes")
     content_type: str = Field(..., description="MIME type")
+    s3_key: str = Field(..., description="S3 object key for the uploaded file")
+    case_id: Optional[str] = Field(None, description="Case identifier for grouping audio files")
+    url: Optional[str] = Field(None, description="URL of the audio file (S3 or external)")
+    audio_info: Optional[AudioInfo] = Field(None, description="AI analysis results (transcript and follow-up questions)")
     duration: Optional[float] = Field(None, description="Audio duration in seconds")
     channels: Optional[int] = Field(None, description="Number of audio channels")
     sample_rate: Optional[int] = Field(None, description="Audio sample rate")
@@ -207,3 +230,50 @@ class CaseTranscriptsResponse(BaseModel):
     transcripts: List[TranscriptResponse] = Field(..., description="Array of transcripts for this case")
     total_count: int = Field(..., description="Total number of transcripts found")
     analysis: Optional[TranscriptAnalysis] = Field(None, description="AI analysis of the transcripts")
+
+
+class AudioAnalyzeRequest(BaseModel):
+    """Request model for audio analysis."""
+    case_id: str = Field(..., description="Case identifier")
+    url: str = Field(..., description="URL of the audio file to analyze")
+
+
+class AudioAnalyzeResponse(BaseModel):
+    """Response model for audio analysis."""
+    url: str = Field(..., description="URL of the analyzed audio file")
+    transcript: str = Field(..., description="Transcribed text from the audio")
+    follow_up_questions: List[str] = Field(..., description="AI-generated follow-up questions")
+
+
+class AudioMediaCreate(BaseModel):
+    """Schema for creating media entry from audio processing."""
+    id: str = Field(..., description="Media ID")
+    case_id: str = Field(..., description="Case ID")
+    url: str = Field(..., description="Audio file URL")
+    transcript: str = Field(..., description="Transcribed text")
+    title: str = Field(..., description="AI-generated title")
+    summary: str = Field(..., description="AI-generated summary")
+    duration: Optional[str] = Field(None, description="Audio duration")
+    speakers: Optional[int] = Field(None, description="Number of speakers")
+    confidence: Optional[float] = Field(None, description="Transcription confidence")
+    follow_up_questions: Optional[List[str]] = Field(None, description="AI-generated follow-up questions")
+
+
+class AudioMediaResponse(BaseModel):
+    """Response model for audio media."""
+    id: str = Field(..., description="Media ID")
+    case_id: str = Field(..., description="Case ID")
+    type: str = Field(default="audio", description="Media type")
+    url: str = Field(..., description="Audio file URL")
+    title: str = Field(..., description="AI-generated title")
+    summary: str = Field(..., description="AI-generated summary")
+    transcript: str = Field(..., description="Transcribed text")
+    duration: Optional[str] = Field(None, description="Audio duration")
+    speakers: Optional[int] = Field(None, description="Number of speakers")
+    confidence: Optional[float] = Field(None, description="Transcription confidence")
+    follow_up_questions: Optional[List[str]] = Field(None, description="AI-generated follow-up questions")
+    created_at: Optional[datetime] = Field(None, description="Creation timestamp")
+    updated_at: Optional[datetime] = Field(None, description="Update timestamp")
+    
+    class Config:
+        from_attributes = True
