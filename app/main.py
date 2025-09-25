@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.core.config import settings
-from app.api import auth, files, users, audio, cases
+from app.api import auth, files, users, audio, cases, evidence
 from app.core.database import supabase_client
 
 # Configure logging
@@ -92,6 +92,7 @@ app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(files.router, prefix="/api/v1/files", tags=["Files"])
 app.include_router(audio.router, prefix="/api/v1/audio", tags=["Audio Transcription"])
 app.include_router(cases.router, prefix="/api/v1/cases", tags=["Cases"])
+app.include_router(evidence.router, prefix="/api/v1/evidence", tags=["Evidence"])
 
 
 if __name__ == "__main__":
