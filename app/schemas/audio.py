@@ -132,6 +132,17 @@ class AudioTranscriptionResponse(BaseModel):
         }
 
 
+class AudioUploadRequest(BaseModel):
+    """Request model for audio file upload with media information."""
+    case_id: str = Field(..., description="Case identifier")
+    title: Optional[str] = Field(None, description="Title for the audio file")
+    description: Optional[str] = Field(None, description="Description of the audio file")
+    type: str = Field(default="audio", description="Media type (audio, video, etc.)")
+    tags: Optional[List[str]] = Field(None, description="Tags for categorization")
+    location: Optional[str] = Field(None, description="Location where audio was recorded")
+    author: Optional[str] = Field(None, description="Author/recorder of the audio")
+
+
 class AudioUploadResponse(BaseModel):
     """Response model for audio file upload."""
     file_id: str = Field(..., description="Unique file identifier")
@@ -141,6 +152,7 @@ class AudioUploadResponse(BaseModel):
     s3_key: str = Field(..., description="S3 object key for the uploaded file")
     upload_url: Optional[str] = Field(None, description="URL to access the uploaded file")
     transcription_id: Optional[str] = Field(None, description="ID of the transcription job")
+    media_id: Optional[str] = Field(None, description="Media table record ID")
 
 
 class TranscriptionJob(BaseModel):

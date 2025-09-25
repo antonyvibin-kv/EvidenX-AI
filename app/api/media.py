@@ -1,6 +1,12 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from app.schemas.media import MediaResponse, MediaCreate, MediaUpdate
+from app.schemas.audio import AudioUploadResponse
 from app.core.database import supabase_client
+from app.services.audio_service import AudioService
+from app.services.s3_service import s3_service
+from typing import Optional
+from datetime import datetime
+import uuid
 import logging
 
 logger = logging.getLogger(__name__)
@@ -323,3 +329,129 @@ async def delete_media(media_id: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete media"
         )
+
+
+@router.post("/upload", 
+             response_model=AudioUploadResponse,
+             summary="Upload Media File",
+             description="Upload any media file (audio, video, image, document) with metadata. Supports various formats and automatically saves to media table.",
+             tags=["Media Upload"])
+async def upload_media_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(..., description="Media file to upload (max 2GB recommended)"),
+    case_id: str = Form(..., description="Case identifier"),
+    title: Optional[str] = Form(None, description="Title for the media file"),
+    description: Optional[str] = Form(None, description="Description of the media file"),
+    type: str = Form(default="audio", description="Media type (audio, video, image, document)"),
+    tags: Optional[str] = Form(None, description="Comma-separated tags"),
+    location: Optional[str] = Form(None, description="Location where media was recorded"),
+    author: Optional[str] = Form(None, description="Author/creator of the media"),
+    # current_user: dict = Depends(get_current_user)  # Disabled for testing
+):
+    """
+    Upload any media file with metadata.
+    
+    **Supported Media Types:**
+    - Audio: WAV, MP3, MP4, M4A, FLAC, OGG, WEBM, AAC, M4B, 3GP, AMR
+    - Video: MP4, AVI, MOV, WMV, FLV, WEBM, MKV
+    - Images: JPG, JPEG, PNG, GIF, BMP, TIFF, WEBP
+    - Documents: PDF, DOC, DOCX, TXT, RTF
+    
+    **File Size:**
+    - Maximum: 2GB
+    - Recommended: Under 50MB for optimal performance
+    
+    **Returns:**
+    - File ID for use in transcription requests (for audio)
+    - Media ID for media table record
+    - File metadata (size, type, etc.)
+    """
+    try:
+        # Basic file validation
+        if not file.filename:
+            raise HTTPException(
+                status_code=400,
+                detail="File must have a filename"
+            )
+        
+        # Read file data
+        file_data = await file.read()
+        
+        # Log file size for debugging
+        file_size_mb = len(file_data) / (1024 * 1024)
+        logger.info(f"Media file size: {file_size_mb:.2f} MB")
+        
+        if file_size_mb > 50:
+            logger.warning(f"Large media file detected ({file_size_mb:.2f} MB). This may cause timeout issues.")
+        
+        # Upload to S3 and database using audio service (it handles S3 upload)
+        audio_service = AudioService()
+        upload_response = await audio_service.upload_audio_file(
+            filename=file.filename,
+            content_type=file.content_type,
+            size=len(file_data),
+            audio_data=file_data
+        )
+        
+        # Save to media table
+        try:
+            media_id = str(uuid.uuid4())
+            
+            # Parse tags if provided
+            tag_list = []
+            if tags:
+                tag_list = [tag.strip() for tag in tags.split(',') if tag.strip()]
+            
+            # Determine file format
+            file_extension = file.filename.split('.')[-1].lower() if '.' in file.filename else 'unknown'
+            
+            # Prepare media info
+            media_info = {
+                "type": type,
+                "url": upload_response.s3_key,  # Use S3 key as URL
+                "title": title or f"{type.title()} File - {file.filename}",
+                "description": description or f"{type.title()} file: {file.filename}",
+                "fileSize": f"{len(file_data) / (1024 * 1024):.2f} MB",
+                "format": file_extension,
+                "uploadDate": datetime.now().strftime("%Y-%m-%d"),
+                "tags": tag_list,
+                "location": location,
+                "author": author
+            }
+            
+            # Save to media table
+            media_saved = await audio_service.save_audio_to_media_table(
+                media_id=media_id,
+                case_id=case_id,
+                url=upload_response.s3_key,
+                transcript="",  # Will be filled after transcription for audio
+                title=media_info["title"],
+                summary=media_info["description"],
+                duration=None,
+                speakers=None,
+                confidence=None,
+                follow_up_questions=[]
+            )
+            
+            if media_saved:
+                # Add media_id to response
+                upload_response.media_id = media_id
+                logger.info(f"Media file uploaded and saved to media table: {file.filename} (media_id: {media_id})")
+            else:
+                logger.error(f"Failed to save to media table for file: {file.filename}")
+                upload_response.media_id = None
+            
+        except Exception as e:
+            logger.error(f"Failed to save to media table: {e}")
+            upload_response.media_id = None
+            # Continue with upload even if media save fails
+        
+        logger.info(f"Media file uploaded: {file.filename} ({len(file_data)} bytes)")
+        
+        return upload_response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Media upload failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")

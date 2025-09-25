@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, BackgroundTasks, Form
 from fastapi.responses import JSONResponse
 from typing import Optional, List, Dict
 from datetime import datetime
@@ -50,74 +50,6 @@ def get_deepgram_service() -> DeepgramService:
             )
         deepgram_service = DeepgramService(settings.deepgram_api_key)
     return deepgram_service
-
-
-@router.post("/upload", 
-             response_model=AudioUploadResponse,
-             summary="Upload Audio File",
-             description="Upload an audio file for transcription. Supports various audio formats including WAV, MP3, MP4, M4A, FLAC, OGG, WEBM, AAC, M4B, 3GP, and AMR.",
-             tags=["Audio Upload"])
-async def upload_audio_file(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(..., description="Audio file to upload (max 2GB recommended)"),
-    # current_user: dict = Depends(get_current_user)  # Disabled for testing
-):
-    """
-    Upload an audio file for transcription.
-    
-    **Supported Formats:**
-    - WAV, MP3, MP4, M4A, FLAC, OGG, WEBM, AAC, M4B, 3GP, AMR
-    
-    **File Size:**
-    - Maximum: 2GB
-    - Recommended: Under 50MB for optimal performance
-    
-    **Returns:**
-    - File ID for use in transcription requests
-    - File metadata (size, type, etc.)
-    """
-    try:
-        # Validate file (more lenient for testing)
-        if file.content_type and not file.content_type.startswith('audio/'):
-            # Check if it's a known audio file by extension
-            audio_extensions = ['.wav', '.mp3', '.mp4', '.m4a', '.flac', '.ogg', '.webm', '.aac', '.m4b', '.3gp', '.amr']
-            file_ext = '.' + file.filename.lower().split('.')[-1] if '.' in file.filename else ''
-            if file_ext not in audio_extensions:
-                raise HTTPException(
-                    status_code=400,
-                    detail="File must be an audio file"
-                )
-        
-        # Read file data
-        audio_data = await file.read()
-        
-        # Validate with Deepgram service
-        deepgram = get_deepgram_service()
-        validation_result = await deepgram.validate_audio_file(audio_data, file.filename)
-        
-        # Log file size for debugging
-        file_size_mb = len(audio_data) / (1024 * 1024)
-        logger.info(f"Audio file size: {file_size_mb:.2f} MB")
-        
-        if file_size_mb > 50:
-            logger.warning(f"Large audio file detected ({file_size_mb:.2f} MB). This may cause timeout issues. Consider using a smaller file for testing.")
-        
-        # Upload to S3 and database
-        upload_response = await audio_service.upload_audio_file(
-            filename=file.filename,
-            content_type=file.content_type,
-            size=len(audio_data),
-            audio_data=audio_data
-            # No user_id for testing
-        )
-        
-        logger.info(f"Audio file uploaded: {file.filename} ({len(audio_data)} bytes)")
-        
-        return upload_response
-        
-    except Exception as e:
-        logger.error(f"File upload failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @router.post("/transcribe/{file_id}", 
