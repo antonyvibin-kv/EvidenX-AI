@@ -40,6 +40,22 @@ class MediaInfo(BaseModel):
     author: Optional[str] = None
 
 
+class EvidenceInfo(BaseModel):
+    """Schema for evidence information in case response."""
+    id: str
+    caseId: str
+    type: str
+    name: str
+    description: str
+    uploadDate: str
+    fileSize: str
+    tags: List[str]
+    duration: Optional[str] = None
+    thumbnail: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 class CaseResponse(BaseModel):
     """Schema for case response with flattened structure."""
     id: str
@@ -54,6 +70,7 @@ class CaseResponse(BaseModel):
     visibility: str
     location: str
     media: Optional[List[MediaInfo]] = None
+    evidence: Optional[List[EvidenceInfo]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     

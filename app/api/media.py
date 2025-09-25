@@ -393,6 +393,12 @@ async def upload_media_file(
             audio_data=file_data
         )
         
+        # Generate S3 URL for the uploaded file
+        s3_url = s3_service.generate_presigned_url(
+            object_name=upload_response.s3_key,
+            expiration=604800  # 7 days
+        )
+        
         # Save to media table
         try:
             media_id = str(uuid.uuid4())
@@ -405,10 +411,10 @@ async def upload_media_file(
             # Determine file format
             file_extension = file.filename.split('.')[-1].lower() if '.' in file.filename else 'unknown'
             
-            # Prepare media info
+            # Prepare media info with proper S3 URL
             media_info = {
                 "type": type,
-                "url": upload_response.s3_key,  # Use S3 key as URL
+                "url": s3_url or upload_response.s3_key,  # Use S3 URL if available, fallback to key
                 "title": title or f"{type.title()} File - {file.filename}",
                 "description": description or f"{type.title()} file: {file.filename}",
                 "fileSize": f"{len(file_data) / (1024 * 1024):.2f} MB",
@@ -423,7 +429,7 @@ async def upload_media_file(
             media_saved = await audio_service.save_audio_to_media_table(
                 media_id=media_id,
                 case_id=case_id,
-                url=upload_response.s3_key,
+                url=s3_url or upload_response.s3_key,  # Use S3 URL if available, fallback to key
                 transcript="",  # Will be filled after transcription for audio
                 title=media_info["title"],
                 summary=media_info["description"],
@@ -434,9 +440,11 @@ async def upload_media_file(
             )
             
             if media_saved:
-                # Add media_id to response
+                # Add media_id and S3 URL to response
                 upload_response.media_id = media_id
+                upload_response.upload_url = s3_url  # Add S3 URL to response
                 logger.info(f"Media file uploaded and saved to media table: {file.filename} (media_id: {media_id})")
+                logger.info(f"S3 URL generated: {s3_url}")
             else:
                 logger.error(f"Failed to save to media table for file: {file.filename}")
                 upload_response.media_id = None
