@@ -11,23 +11,22 @@ from transformers import (
     Owlv2Processor,
     Owlv2ForObjectDetection,
 )
+from app.core.config import settings
 
 
 class VisualSearch:
     def __init__(self):
-        device =  "cuda" if torch.cuda.is_available() else "cpu"
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using device: {device}")
         self.model_id = "IDEA-Research/grounding-dino-tiny"
         # self.model =  AutoModelForZeroShotObjectDetection.from_pretrained(self.model_id).to(device)
         # self.processor = AutoProcessor.from_pretrained(self.model_id)
         self.processor = Owlv2Processor.from_pretrained(
-            "google/owlv2-base-patch16-ensemble",
-            token="token",
-            use_fast=True
+            "google/owlv2-base-patch16-ensemble", token=settings.hf_token, use_fast=True
         )
         self.model = Owlv2ForObjectDetection.from_pretrained(
             "google/owlv2-base-patch16-ensemble",
-            token="token",
+            token=settings.hf_token,
         )
         print("Model loading completed!")
 
@@ -213,6 +212,7 @@ class VisualSearch:
         print(
             f"Completed visual search for {count_frame} frames in {time.time()-start_time:2f}secs!!"
         )
+
 
 # Test code
 visual_searcher = VisualSearch()

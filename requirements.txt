@@ -10,3 +10,9 @@ passlib[bcrypt]==1.7.4
 python-dotenv==1.0.1
 httpx>=0.26,<0.28
 openai==1.58.1
+requests
+opencv-python
+transformers
+pillow
+torch
+torchvision
