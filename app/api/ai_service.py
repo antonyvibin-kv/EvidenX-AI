@@ -136,7 +136,7 @@ async def health_check():
         )
 
 
-@router.get("{case_id}/query-knowledge-base")
+@router.get("/{case_id}/query-knowledge-base")
 async def query_knowledge_base(
     query: str,
     case_id: str
