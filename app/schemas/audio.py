@@ -156,6 +156,12 @@ class TranscriptionJob(BaseModel):
     completed_at: Optional[datetime] = Field(None, description="Job completion timestamp")
 
 
+class AudioInfo(BaseModel):
+    """Schema for audio analysis information stored in JSON column."""
+    transcript: str = Field(..., description="Transcribed text from the audio")
+    follow_up_questions: List[str] = Field(..., description="AI-generated follow-up questions")
+
+
 class AudioFileInfo(BaseModel):
     """Information about an uploaded audio file."""
     file_id: str = Field(..., description="Unique file identifier")
@@ -163,6 +169,9 @@ class AudioFileInfo(BaseModel):
     size: int = Field(..., description="File size in bytes")
     content_type: str = Field(..., description="MIME type")
     s3_key: str = Field(..., description="S3 object key for the uploaded file")
+    case_id: Optional[str] = Field(None, description="Case identifier for grouping audio files")
+    url: Optional[str] = Field(None, description="URL of the audio file (S3 or external)")
+    audio_info: Optional[AudioInfo] = Field(None, description="AI analysis results (transcript and follow-up questions)")
     duration: Optional[float] = Field(None, description="Audio duration in seconds")
     channels: Optional[int] = Field(None, description="Number of audio channels")
     sample_rate: Optional[int] = Field(None, description="Audio sample rate")
@@ -209,3 +218,16 @@ class CaseTranscriptsResponse(BaseModel):
     transcripts: List[TranscriptResponse] = Field(..., description="Array of transcripts for this case")
     total_count: int = Field(..., description="Total number of transcripts found")
     analysis: Optional[TranscriptAnalysis] = Field(None, description="AI analysis of the transcripts")
+
+
+class AudioAnalyzeRequest(BaseModel):
+    """Request model for audio analysis."""
+    case_id: str = Field(..., description="Case identifier")
+    url: str = Field(..., description="URL of the audio file to analyze")
+
+
+class AudioAnalyzeResponse(BaseModel):
+    """Response model for audio analysis."""
+    url: str = Field(..., description="URL of the analyzed audio file")
+    transcript: str = Field(..., description="Transcribed text from the audio")
+    follow_up_questions: List[str] = Field(..., description="AI-generated follow-up questions")

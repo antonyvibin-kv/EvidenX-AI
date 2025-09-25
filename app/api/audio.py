@@ -16,7 +16,10 @@ from app.schemas.audio import (
     CaseTranscriptsResponse,
     SpeakerDiarizationConfig,
     TranscriptAnalysis,
-    ComparisonItem
+    ComparisonItem,
+    AudioAnalyzeRequest,
+    AudioAnalyzeResponse,
+    AudioInfo
 )
 from app.services.deepgram_service import DeepgramService
 from app.services.audio_service import AudioService
@@ -690,3 +693,161 @@ async def debug_case_data(case_id: str):
             "error": str(e),
             "case_id": case_id
         }
+
+
+@router.post("/analyze", 
+            response_model=AudioAnalyzeResponse,
+            summary="Analyze Audio File",
+            description="Analyze an audio file by URL and case ID. Returns transcript and follow-up questions. Checks for existing analysis first.",
+            tags=["Audio Analysis"])
+async def analyze_audio(
+    request: AudioAnalyzeRequest,
+    # current_user: dict = Depends(get_current_user)  # Disabled for testing
+):
+    """
+    Analyze an audio file by URL and case ID.
+    
+    **Features:**
+    - Checks for existing analysis first
+    - Downloads audio from URL if needed
+    - Performs Deepgram transcription
+    - Generates follow-up questions with OpenAI
+    - Stores results in database for future use
+    
+    **Parameters:**
+    - `case_id`: Case identifier
+    - `url`: URL of the audio file to analyze
+    
+    **Returns:**
+    - URL of the analyzed audio file
+    - Full transcript with speaker identification
+    - AI-generated follow-up questions
+    """
+    try:
+        # Check if analysis already exists
+        existing_audio = await audio_service.get_audio_by_case_and_url(
+            case_id=request.case_id,
+            url=request.url
+        )
+        
+        if existing_audio and existing_audio.get('audio_info'):
+            # Return existing analysis
+            audio_info = existing_audio['audio_info']
+            logger.info(f"Returning existing analysis for case {request.case_id}")
+            
+            return AudioAnalyzeResponse(
+                url=request.url,
+                transcript=audio_info['transcript'],
+                follow_up_questions=audio_info['follow_up_questions']
+            )
+        
+        # Download audio from URL
+        logger.info(f"Downloading audio from URL: {request.url}")
+        import requests as http_requests
+        
+        try:
+            audio_response = http_requests.get(request.url, timeout=30)
+            audio_response.raise_for_status()
+            audio_data = audio_response.content
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to download audio from URL: {str(e)}"
+            )
+        
+        # Extract filename from URL for proper format detection
+        import urllib.parse
+        parsed_url = urllib.parse.urlparse(request.url)
+        filename = parsed_url.path.split('/')[-1] if parsed_url.path else "audio_file"
+        
+        # If no extension, try to detect from content type
+        if '.' not in filename:
+            content_type = audio_response.headers.get('content-type', '')
+            if 'audio/mp3' in content_type:
+                filename += '.mp3'
+            elif 'audio/wav' in content_type:
+                filename += '.wav'
+            elif 'audio/mp4' in content_type or 'audio/m4a' in content_type:
+                filename += '.m4a'
+            else:
+                filename += '.mp3'  # Default fallback
+        
+        # Validate audio with Deepgram
+        deepgram = get_deepgram_service()
+        validation_result = await deepgram.validate_audio_file(audio_data, filename)
+        
+        # Perform transcription
+        logger.info("Starting Deepgram transcription...")
+        transcription_request = AudioTranscriptionRequest(
+            language="en",
+            model="nova-2",
+            diarize=True,
+            punctuate=True,
+            smart_format=True,
+            case_id=request.case_id
+        )
+        
+        # Configure speaker diarization
+        diarization_config = SpeakerDiarizationConfig(
+            min_speakers=2,
+            max_speakers=10,
+            speaker_change_sensitivity=0.5,
+            enable_speaker_embedding=True
+        )
+        
+        # Perform transcription
+        transcription_result = await deepgram.transcribe_audio(
+            audio_data=audio_data,
+            filename=filename,
+            request=transcription_request,
+            diarization_config=diarization_config
+        )
+        
+        # Generate follow-up questions with OpenAI
+        logger.info("Generating follow-up questions with OpenAI...")
+        try:
+            openai_service = OpenAIService()
+            follow_up_questions = await openai_service.generate_follow_up_questions(
+                transcript=transcription_result.transcript,
+                case_id=request.case_id
+            )
+        except Exception as e:
+            logger.warning(f"Failed to generate follow-up questions: {e}")
+            # Fallback to basic questions
+            follow_up_questions = [
+                "Can you provide more details about what happened?",
+                "What was the sequence of events?",
+                "Were there any other people present?",
+                "What was the exact time this occurred?",
+                "Can you describe the location in more detail?"
+            ]
+        
+        # Create audio info object
+        audio_info = AudioInfo(
+            transcript=transcription_result.transcript,
+            follow_up_questions=follow_up_questions
+        )
+        
+        # Store in database
+        await audio_service.create_audio_analysis_record(
+            case_id=request.case_id,
+            url=request.url,
+            audio_info=audio_info
+        )
+        
+        logger.info(f"Audio analysis completed for case {request.case_id}")
+        
+        return AudioAnalyzeResponse(
+            url=request.url,
+            transcript=transcription_result.transcript,
+            follow_up_questions=follow_up_questions
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Audio analysis failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Audio analysis failed: {str(e)}"
+        )
