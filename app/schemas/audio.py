@@ -138,6 +138,7 @@ class AudioUploadResponse(BaseModel):
     filename: str = Field(..., description="Original filename")
     size: int = Field(..., description="File size in bytes")
     content_type: str = Field(..., description="MIME type of the file")
+    s3_key: str = Field(..., description="S3 object key for the uploaded file")
     upload_url: Optional[str] = Field(None, description="URL to access the uploaded file")
     transcription_id: Optional[str] = Field(None, description="ID of the transcription job")
 
@@ -161,6 +162,7 @@ class AudioFileInfo(BaseModel):
     filename: str = Field(..., description="Original filename")
     size: int = Field(..., description="File size in bytes")
     content_type: str = Field(..., description="MIME type")
+    s3_key: str = Field(..., description="S3 object key for the uploaded file")
     duration: Optional[float] = Field(None, description="Audio duration in seconds")
     channels: Optional[int] = Field(None, description="Number of audio channels")
     sample_rate: Optional[int] = Field(None, description="Audio sample rate")

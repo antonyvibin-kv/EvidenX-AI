@@ -3,28 +3,37 @@ from typing import Optional
 from datetime import datetime
 
 
+class TimelineDate(BaseModel):
+    """Schema for timeline date."""
+    day: int
+    month: int
+
+
 class TimelineInfo(BaseModel):
     """Schema for timeline information stored in JSON column."""
-    timestamp: str
+    time: float
+    duration: float
+    actor: str
+    date: TimelineDate
     title: str
+    type: str
+    confidence: int
+    evidence: str
     description: str
-    source: str
-    evidenceId: Optional[str] = None
-    evidenceType: Optional[str] = None
 
 
 class CaseTimelineResponse(BaseModel):
-    """Schema for case timeline response with flattened structure."""
-    id: str
-    caseId: str
-    timestamp: str
+    """Schema for case timeline response with new format."""
+    id: int
+    time: float
+    duration: float
+    actor: str
+    date: TimelineDate
     title: str
+    type: str
+    confidence: int
+    evidence: str
     description: str
-    source: str
-    evidenceId: Optional[str] = None
-    evidenceType: Optional[str] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -32,7 +41,7 @@ class CaseTimelineResponse(BaseModel):
 
 class CaseTimelineCreate(BaseModel):
     """Schema for creating new timeline entry."""
-    id: str
+    id: int
     case_id: str
     timeline_info: TimelineInfo
 
