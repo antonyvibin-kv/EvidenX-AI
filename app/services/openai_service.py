@@ -495,11 +495,18 @@ Please provide 5 specific, actionable follow-up questions that would help resolv
             return default_witnesses, default_analysis
 
 
-    async def query_knowledge_base(self, query: str, case_id: str) -> str:
+    async def query_knowledge_base(self, query: str, case_id: str, context: str = None) -> str:
         """
         Query the knowledge base for a given query.
         """
+        print(f"Querying knowledge base for query: {query}, case_id: {case_id}")
+        
+        # If no context provided, use a default message
+        if not context:
+            context = "No specific context provided for this case."
+        
         prompt = f"You are a helpful AI assistant that answers questions based on the provided document context. Use the context below to answer the user's question. If the answer cannot be found in the context, say so clearly. Context: {context}"
+        
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[

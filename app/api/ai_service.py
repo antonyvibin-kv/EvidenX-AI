@@ -6,6 +6,7 @@ from app.schemas.ai_service import (
 )
 from app.services.visual_search_service import VisualSearch
 from app.services.knowledge_base_service import KnowledgeBase
+from app.services.openai_service import OpenAIService
 import logging
 import time
 import tempfile
@@ -145,10 +146,15 @@ async def query_knowledge_base(
         logger.info(f"Querying knowledge base for query: '{query}' for case {case_id}")
         knowledge_base = KnowledgeBase()
         context = knowledge_base.search_similar_documents(query, top_k=5)["text"]
+        print(f"Context: ------------------")
+        print(context)
         if context is None:
             return {"message": "No context found for case " + case_id}
+        print(f"Querying OpenAI: ------------------")
         openai_service = OpenAIService()
-        response = openai_service.query_knowledge_base(query, case_id)
+        response = await openai_service.query_knowledge_base(query, case_id, context)
+        print(f"Response: ------------------")
+        print(response)
         return {"message": response}
 
 
