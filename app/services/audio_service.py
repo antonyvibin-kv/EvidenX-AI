@@ -10,6 +10,7 @@ from datetime import datetime
 import logging
 
 from app.core.database import supabase_client
+from app.services.s3_service import s3_service
 from app.schemas.audio import (
     AudioFileInfo,
     TranscriptionJob,
@@ -32,16 +33,38 @@ class AudioService:
         filename: str,
         content_type: str,
         size: int,
+        audio_data: bytes,
         user_id: str = None,
         duration: Optional[float] = None,
         channels: Optional[int] = None,
         sample_rate: Optional[int] = None,
-        bit_rate: Optional[int] = None,
-        temp_file_path: Optional[str] = None
+        bit_rate: Optional[int] = None
     ) -> AudioUploadResponse:
-        """Upload an audio file to the database."""
+        """Upload an audio file to S3 and database."""
         try:
             file_id = str(uuid.uuid4())
+            
+            # Generate S3 key for the file
+            file_extension = filename.split('.')[-1] if '.' in filename else 'wav'
+            s3_key = f"audio/{file_id}.{file_extension}"
+            
+            # Upload to S3
+            import io
+            audio_file_obj = io.BytesIO(audio_data)
+            
+            s3_result = await s3_service.upload_file(
+                file_obj=audio_file_obj,
+                object_name=s3_key,
+                content_type=content_type,
+                metadata={
+                    'file_id': file_id,
+                    'filename': filename,
+                    'user_id': user_id or 'anonymous'
+                }
+            )
+            
+            if not s3_result.get('success'):
+                raise Exception(f"Failed to upload to S3: {s3_result.get('error')}")
             
             # Insert into database
             insert_data = {
@@ -49,6 +72,7 @@ class AudioService:
                 'filename': filename,
                 'size': size,
                 'content_type': content_type,
+                's3_key': s3_key,
                 'duration': duration,
                 'channels': channels,
                 'sample_rate': sample_rate,
@@ -96,12 +120,14 @@ class AudioService:
             result = self.client.table('audio_files').insert(insert_data).execute()
             
             if result.data:
-                self.logger.info(f"Audio file uploaded: {filename} ({size} bytes)")
+                self.logger.info(f"Audio file uploaded to S3: {filename} ({size} bytes) at {s3_key}")
                 return AudioUploadResponse(
                     file_id=file_id,
                     filename=filename,
                     size=size,
-                    content_type=content_type
+                    content_type=content_type,
+                    s3_key=s3_key,
+                    upload_url=s3_result.get('url')
                 )
             else:
                 raise Exception("Failed to insert audio file into database")
@@ -264,6 +290,33 @@ class AudioService:
             return None
         except Exception as e:
             self.logger.error(f"Failed to get audio file info: {str(e)}")
+            return None
+    
+    async def get_audio_data_from_s3(self, file_id: str) -> Optional[bytes]:
+        """Get audio file data from S3."""
+        try:
+            # Get file info from database
+            file_info = await self.get_audio_file_info(file_id)
+            if not file_info:
+                self.logger.error(f"Audio file {file_id} not found in database")
+                return None
+            
+            s3_key = file_info.get('s3_key')
+            if not s3_key:
+                self.logger.error(f"No S3 key found for file {file_id}")
+                return None
+            
+            # Download from S3
+            audio_data = await s3_service.download_file(s3_key)
+            if audio_data is None:
+                self.logger.error(f"Failed to download audio file from S3: {s3_key}")
+                return None
+            
+            self.logger.info(f"Downloaded audio file from S3: {s3_key} ({len(audio_data)} bytes)")
+            return audio_data
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get audio data from S3: {str(e)}")
             return None
 
     async def get_transcription_job(self, job_id: str, user_id: str = None) -> Optional[TranscriptionJob]:
@@ -452,6 +505,7 @@ class AudioService:
                     filename=file_data['filename'],
                     size=file_data['size'],
                     content_type=file_data['content_type'],
+                    s3_key=file_data['s3_key'],
                     duration=file_data.get('duration'),
                     channels=file_data.get('channels'),
                     sample_rate=file_data.get('sample_rate'),

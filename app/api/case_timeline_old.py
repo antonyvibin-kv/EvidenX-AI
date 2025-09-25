@@ -13,22 +13,22 @@ async def get_timeline():
     try:
         client = supabase_client.get_client()
         
-        response = client.table("case_timeline").select("*").order("timeline_info->date->month, timeline_info->date->day, timeline_info->time").execute()
+        response = client.table("case_timeline").select("*").order("timeline_info->timestamp").execute()
         
         timeline_list = []
         for timeline_data in response.data:
             timeline_info = timeline_data["timeline_info"]
             timeline_list.append(CaseTimelineResponse(
-                id=timeline_info["id"],
-                time=timeline_info["time"],
-                duration=timeline_info["duration"],
-                actor=timeline_info["actor"],
-                date=timeline_info["date"],
+                id=timeline_data["id"],
+                caseId=timeline_data["case_id"],
+                timestamp=timeline_info["timestamp"],
                 title=timeline_info["title"],
-                type=timeline_info["type"],
-                confidence=timeline_info["confidence"],
-                evidence=timeline_info["evidence"],
-                description=timeline_info["description"]
+                description=timeline_info["description"],
+                source=timeline_info["source"],
+                evidenceId=timeline_info.get("evidenceId"),
+                evidenceType=timeline_info.get("evidenceType"),
+                created_at=timeline_data.get("created_at"),
+                updated_at=timeline_data.get("updated_at")
             ))
         
         return timeline_list
@@ -59,16 +59,16 @@ async def get_timeline_by_id(timeline_id: str):
         timeline_info = timeline_data["timeline_info"]
         
         return CaseTimelineResponse(
-            id=timeline_info["id"],
-            time=timeline_info["time"],
-            duration=timeline_info["duration"],
-            actor=timeline_info["actor"],
-            date=timeline_info["date"],
+            id=timeline_data["id"],
+            caseId=timeline_data["case_id"],
+            timestamp=timeline_info["timestamp"],
             title=timeline_info["title"],
-            type=timeline_info["type"],
-            confidence=timeline_info["confidence"],
-            evidence=timeline_info["evidence"],
-            description=timeline_info["description"]
+            description=timeline_info["description"],
+            source=timeline_info["source"],
+            evidenceId=timeline_info.get("evidenceId"),
+            evidenceType=timeline_info.get("evidenceType"),
+            created_at=timeline_data.get("created_at"),
+            updated_at=timeline_data.get("updated_at")
         )
         
     except HTTPException:
@@ -87,22 +87,22 @@ async def get_timeline_by_case_id(case_id: str):
     try:
         client = supabase_client.get_client()
         
-        response = client.table("case_timeline").select("*").eq("case_id", case_id).order("timeline_info->date->month, timeline_info->date->day, timeline_info->time").execute()
+        response = client.table("case_timeline").select("*").eq("case_id", case_id).order("timeline_info->timestamp").execute()
         
         timeline_list = []
         for timeline_data in response.data:
             timeline_info = timeline_data["timeline_info"]
             timeline_list.append(CaseTimelineResponse(
-                id=timeline_info["id"],
-                time=timeline_info["time"],
-                duration=timeline_info["duration"],
-                actor=timeline_info["actor"],
-                date=timeline_info["date"],
+                id=timeline_data["id"],
+                caseId=timeline_data["case_id"],
+                timestamp=timeline_info["timestamp"],
                 title=timeline_info["title"],
-                type=timeline_info["type"],
-                confidence=timeline_info["confidence"],
-                evidence=timeline_info["evidence"],
-                description=timeline_info["description"]
+                description=timeline_info["description"],
+                source=timeline_info["source"],
+                evidenceId=timeline_info.get("evidenceId"),
+                evidenceType=timeline_info.get("evidenceType"),
+                created_at=timeline_data.get("created_at"),
+                updated_at=timeline_data.get("updated_at")
             ))
         
         return timeline_list
@@ -139,7 +139,7 @@ async def create_timeline_entry(timeline_create: CaseTimelineCreate):
         
         # Insert new timeline entry
         response = client.table("case_timeline").insert({
-            "id": str(timeline_create.id),
+            "id": timeline_create.id,
             "case_id": timeline_create.case_id,
             "timeline_info": timeline_create.timeline_info.dict()
         }).execute()
@@ -154,16 +154,16 @@ async def create_timeline_entry(timeline_create: CaseTimelineCreate):
         timeline_info = timeline_data["timeline_info"]
         
         return CaseTimelineResponse(
-            id=timeline_info["id"],
-            time=timeline_info["time"],
-            duration=timeline_info["duration"],
-            actor=timeline_info["actor"],
-            date=timeline_info["date"],
+            id=timeline_data["id"],
+            caseId=timeline_data["case_id"],
+            timestamp=timeline_info["timestamp"],
             title=timeline_info["title"],
-            type=timeline_info["type"],
-            confidence=timeline_info["confidence"],
-            evidence=timeline_info["evidence"],
-            description=timeline_info["description"]
+            description=timeline_info["description"],
+            source=timeline_info["source"],
+            evidenceId=timeline_info.get("evidenceId"),
+            evidenceType=timeline_info.get("evidenceType"),
+            created_at=timeline_data.get("created_at"),
+            updated_at=timeline_data.get("updated_at")
         )
         
     except HTTPException:
@@ -217,16 +217,16 @@ async def update_timeline_entry(
         timeline_info = timeline_data["timeline_info"]
         
         return CaseTimelineResponse(
-            id=timeline_info["id"],
-            time=timeline_info["time"],
-            duration=timeline_info["duration"],
-            actor=timeline_info["actor"],
-            date=timeline_info["date"],
+            id=timeline_data["id"],
+            caseId=timeline_data["case_id"],
+            timestamp=timeline_info["timestamp"],
             title=timeline_info["title"],
-            type=timeline_info["type"],
-            confidence=timeline_info["confidence"],
-            evidence=timeline_info["evidence"],
-            description=timeline_info["description"]
+            description=timeline_info["description"],
+            source=timeline_info["source"],
+            evidenceId=timeline_info.get("evidenceId"),
+            evidenceType=timeline_info.get("evidenceType"),
+            created_at=timeline_data.get("created_at"),
+            updated_at=timeline_data.get("updated_at")
         )
         
     except HTTPException:

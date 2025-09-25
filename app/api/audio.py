@@ -5,8 +5,6 @@ from datetime import datetime
 import uuid
 import time
 import logging
-import os
-import glob
 
 from app.schemas.audio import (
     AudioTranscriptionRequest,
@@ -26,8 +24,7 @@ from app.services.openai_service import OpenAIService
 from app.core.config import settings
 from app.api.auth import get_current_user
 
-# In-memory storage for temp file paths (in production, use Redis or database)
-temp_file_storage = {}
+# No longer needed - using S3 for file storage
 
 logger = logging.getLogger(__name__)
 
@@ -102,26 +99,14 @@ async def upload_audio_file(
         if file_size_mb > 50:
             logger.warning(f"Large audio file detected ({file_size_mb:.2f} MB). This may cause timeout issues. Consider using a smaller file for testing.")
         
-        # Store audio data temporarily for processing
-        # In production, you'd store this in S3 or local storage
-        import tempfile
-        import os
-        
-        # Create a temporary file to store the audio data
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f".{file.filename.split('.')[-1]}")
-        temp_file.write(audio_data)
-        temp_file.close()
-        
-        # Upload to database
+        # Upload to S3 and database
         upload_response = await audio_service.upload_audio_file(
             filename=file.filename,
             content_type=file.content_type,
-            size=len(audio_data)
+            size=len(audio_data),
+            audio_data=audio_data
             # No user_id for testing
         )
-        
-        # Store temp file path in memory
-        temp_file_storage[upload_response.file_id] = temp_file.name
         
         logger.info(f"Audio file uploaded: {file.filename} ({len(audio_data)} bytes)")
         
@@ -210,37 +195,14 @@ async def process_transcription(
         # Get Deepgram service
         deepgram = get_deepgram_service()
         
-        # Get the actual audio file data from the temp file storage
+        # Get the actual audio file data from S3
         try:
-            # Get temp file path from in-memory storage
-            temp_file_path = temp_file_storage.get(file_id)
-            if not temp_file_path:
-                logger.warning(f"Temp file not found in memory for {file_id}, checking if file exists...")
-                # Try to find the temp file by searching common temp directories
-                temp_patterns = [
-                    f"/tmp/tmp*{file_id}*",
-                    f"/tmp/tmp*{file_id.split('-')[0]}*",
-                    f"/tmp/*{file_id}*"
-                ]
-                for pattern in temp_patterns:
-                    matches = glob.glob(pattern)
-                    if matches:
-                        temp_file_path = matches[0]
-                        temp_file_storage[file_id] = temp_file_path
-                        logger.info(f"Found temp file: {temp_file_path}")
-                        break
-                
-                if not temp_file_path:
-                    raise Exception(f"Audio file not found for {file_id}. Please re-upload the file.")
+            # Get audio data from S3
+            audio_data = await audio_service.get_audio_data_from_s3(file_id)
+            if not audio_data:
+                raise Exception(f"Audio file not found in S3 for {file_id}. Please re-upload the file.")
             
-            if not os.path.exists(temp_file_path):
-                raise Exception(f"Audio file not found at {temp_file_path}")
-            
-            # Read the actual audio data from the temp file
-            with open(temp_file_path, 'rb') as f:
-                audio_data = f.read()
-            
-            logger.info(f"Read audio data: {len(audio_data)} bytes from {temp_file_path}")
+            logger.info(f"Downloaded audio data: {len(audio_data)} bytes from S3")
             
             # Get audio file info for filename
             audio_file_info = await audio_service.get_audio_file_info(file_id)
@@ -248,7 +210,7 @@ async def process_transcription(
                 raise Exception(f"Audio file {file_id} not found in database")
             
         except Exception as e:
-            logger.error(f"Failed to get audio file data: {e}")
+            logger.error(f"Failed to get audio file data from S3: {e}")
             raise Exception(f"Cannot process transcription: {e}")
         
         await audio_service.update_transcription_job(
@@ -285,15 +247,7 @@ async def process_transcription(
             transcription_result=result
         )
         
-        # Clean up temp file
-        try:
-            temp_file_path = temp_file_storage.get(file_id)
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.unlink(temp_file_path)
-                del temp_file_storage[file_id]
-                logger.info(f"Cleaned up temp file: {temp_file_path}")
-        except Exception as cleanup_error:
-            logger.warning(f"Failed to cleanup temp file: {cleanup_error}")
+        # No cleanup needed - files are stored in S3
         
         logger.info(f"Transcription completed for job: {job_id}")
         
@@ -305,14 +259,7 @@ async def process_transcription(
             error_message=str(e)
         )
         
-        # Clean up temp file even on failure
-        try:
-            temp_file_path = temp_file_storage.get(file_id)
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.unlink(temp_file_path)
-                del temp_file_storage[file_id]
-        except Exception as cleanup_error:
-            logger.warning(f"Failed to cleanup temp file after error: {cleanup_error}")
+        # No cleanup needed - files are stored in S3
 
 
 @router.get("/jobs/{job_id}", 
