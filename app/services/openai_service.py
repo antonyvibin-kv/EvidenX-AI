@@ -301,3 +301,195 @@ Please provide 5 specific, actionable follow-up questions that would help resolv
         except Exception as e:
             logger.error(f"Failed to generate title and summary for case {case_id}: {str(e)}")
             return "Audio Recording", "Audio recording from investigation"
+    
+    async def analyze_audio_comparison(
+        self, 
+        transcript1: str, 
+        transcript2: str, 
+        witness1_name: str = "Witness 1", 
+        witness2_name: str = "Witness 2"
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Analyze two audio transcripts and generate comparison analysis.
+        
+        Returns:
+            tuple: (witnesses_analysis, detailed_analysis)
+        """
+        try:
+            prompt = f"""
+            You are a legal analyst comparing two witness statements. Analyze the following transcripts and provide a comprehensive comparison.
+
+            WITNESS 1 ({witness1_name}):
+            {transcript1}
+
+            WITNESS 2 ({witness2_name}):
+            {transcript2}
+
+            IMPORTANT: You must respond with ONLY valid JSON. No additional text, explanations, or formatting.
+
+            Required JSON structure:
+            {{
+                "witnesses": [
+                    {{
+                        "id": "ac1",
+                        "witnessName": "{witness1_name}",
+                        "witnessImage": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face",
+                        "audioId": "media1",
+                        "summary": "Brief summary of what this witness said",
+                        "transcript": "Key excerpt from transcript",
+                        "contradictions": ["List of contradictions with other evidence"],
+                        "similarities": ["List of similarities with other witness"],
+                        "grayAreas": ["List of unclear or ambiguous statements"]
+                    }},
+                    {{
+                        "id": "ac2",
+                        "witnessName": "{witness2_name}",
+                        "witnessImage": "https://images.unsplash.com/photo-1494790108755-2616b2abff16?w=150&h=150&fit=crop&crop=face",
+                        "audioId": "media2",
+                        "summary": "Brief summary of what this witness said",
+                        "transcript": "Key excerpt from transcript",
+                        "contradictions": ["List of contradictions with other evidence"],
+                        "similarities": ["List of similarities with other witness"],
+                        "grayAreas": ["List of unclear or ambiguous statements"]
+                    }}
+                ],
+                "detailedAnalysis": [
+                    {{
+                        "topic": "Topic being compared",
+                        "witness1": "What witness 1 said about this topic",
+                        "witness2": "What witness 2 said about this topic",
+                        "status": "contradiction",
+                        "details": "Detailed explanation of the comparison"
+                    }},
+                    {{
+                        "topic": "Another topic",
+                        "witness1": "What witness 1 said",
+                        "witness2": "What witness 2 said",
+                        "status": "similarity",
+                        "details": "Explanation"
+                    }}
+                ]
+            }}
+            """
+            
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are an expert legal analyst specializing in witness statement comparison and contradiction analysis. Provide detailed, accurate analysis of witness statements."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=4000
+            )
+            
+            content = response.choices[0].message.content.strip()
+            logger.info(f"OpenAI response content: {content[:200]}...")
+            
+            if not content:
+                logger.error("OpenAI returned empty content")
+                raise ValueError("Empty response from OpenAI")
+            
+            # Clean up markdown formatting if present
+            if content.startswith("```json"):
+                content = content[7:]  # Remove ```json
+            if content.startswith("```"):
+                content = content[3:]   # Remove ```
+            if content.endswith("```"):
+                content = content[:-3]  # Remove trailing ```
+            
+            content = content.strip()
+            logger.info(f"Cleaned content: {content[:200]}...")
+            
+            # Try to parse JSON
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError as json_err:
+                logger.error(f"JSON decode error: {json_err}")
+                logger.error(f"Raw content: {content}")
+                raise ValueError(f"Invalid JSON response from OpenAI: {json_err}")
+            
+            witnesses = result.get("witnesses", [])
+            detailed_analysis = result.get("detailedAnalysis", [])
+            
+            if not witnesses or not detailed_analysis:
+                logger.error("OpenAI response missing required fields")
+                logger.error(f"Witnesses: {witnesses}, Analysis: {detailed_analysis}")
+                raise ValueError("Incomplete response from OpenAI")
+            
+            return witnesses, detailed_analysis
+            
+        except Exception as e:
+            logger.error(f"Failed to analyze audio comparison: {str(e)}")
+            
+            # Try with a simpler prompt as fallback
+            try:
+                logger.info("Attempting fallback analysis with simpler prompt...")
+                simple_prompt = f"""
+                Compare these two witness statements and return JSON only:
+                
+                Statement 1: {transcript1[:500]}...
+                Statement 2: {transcript2[:500]}...
+                
+                Return this exact JSON structure:
+                {{"witnesses":[{{"id":"ac1","witnessName":"{witness1_name}","witnessImage":"https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face","audioId":"media1","summary":"Brief summary","transcript":"Key excerpt","contradictions":["Contradiction 1"],"similarities":["Similarity 1"],"grayAreas":["Gray area 1"]}},{{"id":"ac2","witnessName":"{witness2_name}","witnessImage":"https://images.unsplash.com/photo-1494790108755-2616b2abff16?w=150&h=150&fit=crop&crop=face","audioId":"media2","summary":"Brief summary","transcript":"Key excerpt","contradictions":["Contradiction 1"],"similarities":["Similarity 1"],"grayAreas":["Gray area 1"]}}],"detailedAnalysis":[{{"topic":"Topic 1","witness1":"Statement 1","witness2":"Statement 2","status":"similarity","details":"Explanation"}}]}}
+                """
+                
+                fallback_response = self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": "You are a legal analyst. Return only valid JSON."},
+                        {"role": "user", "content": simple_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=2000
+                )
+                
+                fallback_content = fallback_response.choices[0].message.content.strip()
+                if fallback_content:
+                    fallback_result = json.loads(fallback_content)
+                    witnesses = fallback_result.get("witnesses", [])
+                    detailed_analysis = fallback_result.get("detailedAnalysis", [])
+                    if witnesses and detailed_analysis:
+                        logger.info("Fallback analysis successful")
+                        return witnesses, detailed_analysis
+                        
+            except Exception as fallback_error:
+                logger.error(f"Fallback analysis also failed: {fallback_error}")
+            
+            # Return default structure on error
+            default_witnesses = [
+                {
+                    "id": "ac1",
+                    "witnessName": witness1_name,
+                    "witnessImage": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face",
+                    "audioId": "media1",
+                    "summary": "Analysis failed - manual review required",
+                    "transcript": transcript1[:200] + "..." if len(transcript1) > 200 else transcript1,
+                    "contradictions": ["Analysis unavailable"],
+                    "similarities": ["Analysis unavailable"],
+                    "grayAreas": ["Analysis unavailable"]
+                },
+                {
+                    "id": "ac2",
+                    "witnessName": witness2_name,
+                    "witnessImage": "https://images.unsplash.com/photo-1494790108755-2616b2abff16?w=150&h=150&fit=crop&crop=face",
+                    "audioId": "media2",
+                    "summary": "Analysis failed - manual review required",
+                    "transcript": transcript2[:200] + "..." if len(transcript2) > 200 else transcript2,
+                    "contradictions": ["Analysis unavailable"],
+                    "similarities": ["Analysis unavailable"],
+                    "grayAreas": ["Analysis unavailable"]
+                }
+            ]
+            
+            default_analysis = [
+                {
+                    "topic": "Analysis Error",
+                    "witness1": "Unable to analyze",
+                    "witness2": "Unable to analyze",
+                    "status": "gray_area",
+                    "details": "AI analysis failed - manual review required"
+                }
+            ]
+            
+            return default_witnesses, default_analysis

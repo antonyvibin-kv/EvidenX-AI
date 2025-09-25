@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
-from app.schemas.case import CaseResponse, CaseCreate, CaseUpdate, MediaInfo, EvidenceInfo
+from app.schemas.case import CaseResponse, CaseCreate, CaseUpdate, MediaInfo, EvidenceInfo, AudioComparisonInfo
 from app.core.database import supabase_client
 import logging
 
@@ -84,6 +84,33 @@ async def get_evidence_for_case(case_id: str) -> list[EvidenceInfo]:
         return []
 
 
+async def get_audio_comparisons_for_case(case_id: str) -> list[AudioComparisonInfo]:
+    """Get audio comparison information for a specific case."""
+    try:
+        client = supabase_client.get_client()
+        
+        response = client.table("case_audio_comparison").select("*").eq("case_id", case_id).order("created_at", desc=True).execute()
+        
+        comparisons_list = []
+        for comparison_data in response.data:
+            comparisons_list.append(AudioComparisonInfo(
+                id=comparison_data["id"],
+                caseId=comparison_data["case_id"],
+                mediaId1=comparison_data["media_id1"],
+                mediaId2=comparison_data["media_id2"],
+                witnesses=comparison_data["witnesses"],
+                detailedAnalysis=comparison_data["detailed_analysis"],
+                created_at=comparison_data.get("created_at"),
+                updated_at=comparison_data.get("updated_at")
+            ))
+        
+        return comparisons_list
+        
+    except Exception as e:
+        logger.error(f"Error fetching audio comparisons for case {case_id}: {e}")
+        return []
+
+
 @router.get("/", response_model=list[CaseResponse])
 async def get_cases():
     """Get all cases."""
@@ -96,9 +123,10 @@ async def get_cases():
         for case_data in response.data:
             case_info = case_data["case_info"]
             
-            # Get media and evidence for this case
+            # Get media, evidence, and audio comparisons for this case
             media = await get_media_for_case(case_data["id"])
             evidence = await get_evidence_for_case(case_data["id"])
+            audio_comparisons = await get_audio_comparisons_for_case(case_data["id"])
             
             cases.append(CaseResponse(
                 id=case_data["id"],
@@ -114,6 +142,7 @@ async def get_cases():
                 location=case_info["location"],
                 media=media,
                 evidence=evidence,
+                audioComparisons=audio_comparisons,
                 created_at=case_data.get("created_at"),
                 updated_at=case_data.get("updated_at")
             ))
@@ -145,9 +174,10 @@ async def get_case_by_id(case_id: str):
         case_data = response.data[0]
         case_info = case_data["case_info"]
         
-        # Get media and evidence for this case
+        # Get media, evidence, and audio comparisons for this case
         media = await get_media_for_case(case_data["id"])
         evidence = await get_evidence_for_case(case_data["id"])
+        audio_comparisons = await get_audio_comparisons_for_case(case_data["id"])
         
         return CaseResponse(
             id=case_data["id"],
@@ -163,6 +193,7 @@ async def get_case_by_id(case_id: str):
             location=case_info["location"],
             media=media,
             evidence=evidence,
+            audioComparisons=audio_comparisons,
             created_at=case_data.get("created_at"),
             updated_at=case_data.get("updated_at")
         )
