@@ -133,3 +133,28 @@ async def health_check():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Service unhealthy",
         )
+
+
+@router.get("{case_id}/query-knowledge-base")
+async def query_knowledge_base(
+    query: str,
+    case_id: str
+):
+    """Query the knowledge base"""
+    try:
+        logger.info(f"Querying knowledge base for query: '{query}' for case {case_id}")
+        knowledge_base = KnowledgeBase()
+        context = knowledge_base.search_similar_documents(query, top_k=5)["text"]
+        if context is None:
+            return {"message": "No context found for case " + case_id}
+        openai_service = OpenAIService()
+        response = openai_service.query_knowledge_base(query, case_id)
+        return {"message": response}
+
+
+    except Exception as e:
+        logger.error(f"Error querying knowledge base: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error querying knowledge base: {str(e)}"
+        )

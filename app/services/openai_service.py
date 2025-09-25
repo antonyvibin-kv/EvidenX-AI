@@ -493,3 +493,18 @@ Please provide 5 specific, actionable follow-up questions that would help resolv
             ]
             
             return default_witnesses, default_analysis
+
+
+    async def query_knowledge_base(self, query: str, case_id: str) -> str:
+        """
+        Query the knowledge base for a given query.
+        """
+        prompt = f"You are a helpful AI assistant that answers questions based on the provided document context. Use the context below to answer the user's question. If the answer cannot be found in the context, say so clearly. Context: {context}"
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": query}
+            ],
+        )
+        return response.choices[0].message.content
