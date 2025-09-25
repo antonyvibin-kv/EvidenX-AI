@@ -675,8 +675,6 @@ class AudioService:
             bool: True if successful, False otherwise
         """
         try:
-            from app.services.openai_service import get_openai_service
-            
             # Prepare media info JSON
             media_info = {
                 "type": "audio",
@@ -705,7 +703,9 @@ class AudioService:
             if result.data:
                 self.logger.info(f"Audio media record created: {media_id} for case {case_id}")
                 return True
-            return False
+            else:
+                self.logger.error(f"No data returned from media table insert for {media_id}")
+                return False
             
         except Exception as e:
             self.logger.error(f"Failed to save audio to media table: {str(e)}")
