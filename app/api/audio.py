@@ -699,7 +699,7 @@ async def analyze_audio(
     - AI-generated follow-up questions
     """
     try:
-        # Check if analysis already exists
+        # Check if analysis already exists in audio_files table
         existing_audio = await audio_service.get_audio_by_case_and_url(
             case_id=request.case_id,
             url=request.url
@@ -714,6 +714,31 @@ async def analyze_audio(
                 url=request.url,
                 transcript=audio_info['transcript'],
                 follow_up_questions=audio_info['follow_up_questions']
+            )
+        
+        # Check if media record exists with this URL and case_id
+        from app.core.database import supabase_client
+        client = supabase_client.get_client()
+        
+        media_response = client.table("media").select("*").eq("case_id", request.case_id).execute()
+        existing_media = None
+        
+        if media_response.data:
+            for media in media_response.data:
+                media_info = media.get("media_info", {})
+                if media_info.get("url") == request.url:
+                    existing_media = media
+                    break
+        
+        if existing_media and existing_media.get("media_info", {}).get("transcript"):
+            # Return existing media analysis
+            media_info = existing_media["media_info"]
+            logger.info(f"Returning existing media analysis for case {request.case_id}")
+            
+            return AudioAnalyzeResponse(
+                url=request.url,
+                transcript=media_info.get("transcript", ""),
+                follow_up_questions=media_info.get("follow_up_questions", [])
             )
         
         # Download audio from URL
@@ -822,21 +847,46 @@ async def analyze_audio(
             audio_info=audio_info
         )
         
-        # Save to media table
-        import uuid
-        media_id = str(uuid.uuid4())
-        await audio_service.save_audio_to_media_table(
-            media_id=media_id,
-            case_id=request.case_id,
-            url=request.url,
-            transcript=transcription_result.transcript,
-            title=title,
-            summary=summary,
-            duration=transcription_result.duration,
-            speakers=len(transcription_result.speakers),
-            confidence=transcription_result.confidence,
-            follow_up_questions=follow_up_questions
-        )
+        # Update or create media record
+        if existing_media:
+            # Update existing media record with transcript and follow-up questions
+            logger.info(f"Updating existing media record: {existing_media['id']}")
+            
+            # Update the media_info with transcript and follow-up questions
+            updated_media_info = existing_media["media_info"].copy()
+            updated_media_info.update({
+                "transcript": transcription_result.transcript,
+                "follow_up_questions": follow_up_questions,
+                "duration": transcription_result.duration,
+                "speakers": len(transcription_result.speakers),
+                "confidence": int(transcription_result.confidence * 100) if transcription_result.confidence else None
+            })
+            
+            # Update the media record
+            update_result = client.table("media").update({
+                "media_info": updated_media_info
+            }).eq("id", existing_media["id"]).execute()
+            
+            if update_result.data:
+                logger.info(f"Media record updated successfully: {existing_media['id']}")
+            else:
+                logger.error(f"Failed to update media record: {existing_media['id']}")
+        else:
+            # Create new media record
+            import uuid
+            media_id = str(uuid.uuid4())
+            await audio_service.save_audio_to_media_table(
+                media_id=media_id,
+                case_id=request.case_id,
+                url=request.url,
+                transcript=transcription_result.transcript,
+                title=title,
+                summary=summary,
+                duration=transcription_result.duration,
+                speakers=len(transcription_result.speakers),
+                confidence=transcription_result.confidence,
+                follow_up_questions=follow_up_questions
+            )
         
         logger.info(f"Audio analysis completed for case {request.case_id}")
         
