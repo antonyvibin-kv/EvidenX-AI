@@ -108,6 +108,7 @@ async def get_cases():
             # Get evidence (with merged media data) and audio comparisons for this case
             evidence = await get_evidence_for_case(case_data["id"])
             audio_comparisons = await get_audio_comparisons_for_case(case_data["id"])
+            combined_media = media + evidence
             
             cases.append(CaseResponse(
                 id=case_data["id"],
@@ -157,6 +158,15 @@ async def get_case_by_id(case_id: str):
         # Get evidence (with merged media data) and audio comparisons for this case
         evidence = await get_evidence_for_case(case_data["id"])
         audio_comparisons = await get_audio_comparisons_for_case(case_data["id"])
+        media_evidence = media + evidence
+      
+        
+        print(f"Media: ------------------")
+        print(media)
+        print(f"Evidence: ------------------")
+        print(evidence)
+        print(f"Media Evidence: ------------------")
+        print(media_evidence)
         
         return CaseResponse(
             id=case_data["id"],
