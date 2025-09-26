@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List ,Union
 from datetime import datetime
 
 
@@ -104,7 +104,7 @@ class CaseResponse(BaseModel):
     visibility: str
     location: str
     media: Optional[List[MediaInfo]] = None
-    evidence: Optional[List[EvidenceInfo]] = None
+    evidence: Optional[List[Union[MediaInfo, EvidenceInfo]]] = None
     audioComparisons: Optional[List[AudioComparisonInfo]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
