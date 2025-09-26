@@ -176,6 +176,10 @@ CREATE POLICY "Users can delete own files" ON public.files
 
 ### 5. Run the Application
 
+python3 run.py
+
+or
+
 ```bash
 # Development mode
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
