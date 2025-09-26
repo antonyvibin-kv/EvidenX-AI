@@ -76,12 +76,20 @@ async def get_audio_comparisons_for_case(case_id: str) -> list[AudioComparisonIn
         
         comparisons_list = []
         for comparison_data in response.data:
+            # Transform witnesses to use ev1/ev2 instead of UUIDs
+            witnesses = comparison_data["witnesses"]
+            for witness in witnesses:
+                if witness.get("audioId") == comparison_data["media_id1"]:
+                    witness["audioId"] = "ev1"
+                elif witness.get("audioId") == comparison_data["media_id2"]:
+                    witness["audioId"] = "ev2"
+            
             comparisons_list.append(AudioComparisonInfo(
                 id=comparison_data["id"],
                 caseId=comparison_data["case_id"],
                 mediaId1=comparison_data["media_id1"],
                 mediaId2=comparison_data["media_id2"],
-                witnesses=comparison_data["witnesses"],
+                witnesses=witnesses,
                 detailedAnalysis=comparison_data["detailed_analysis"],
                 created_at=comparison_data.get("created_at"),
                 updated_at=comparison_data.get("updated_at")
