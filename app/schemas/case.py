@@ -54,6 +54,7 @@ class EvidenceInfo(BaseModel):
     thumbnail: Optional[str] = None
     url: Optional[str] = None
     transcript: Optional[str] = None
+    processingStatus: str
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

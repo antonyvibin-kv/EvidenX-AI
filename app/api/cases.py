@@ -42,6 +42,9 @@ async def get_evidence_for_case(case_id: str) -> list[EvidenceInfo]:
                 # Use the first matching media item
                 matching_media = media_by_type[evidence_type][0]
             
+            # Determine processing status based on evidence type
+            processing_status = "processed" if evidence_type in ["audio", "video"] else "pending"
+            
             evidence_list.append(EvidenceInfo(
                 id=evidence_data["id"],
                 caseId=evidence_data["case_id"],
@@ -55,6 +58,7 @@ async def get_evidence_for_case(case_id: str) -> list[EvidenceInfo]:
                 thumbnail=evidence_info.get("thumbnail"),
                 url=matching_media.get("url") if matching_media else None,
                 transcript=matching_media.get("transcript") if matching_media else None,
+                processingStatus=processing_status,
                 created_at=evidence_data.get("created_at"),
                 updated_at=evidence_data.get("updated_at")
             ))
