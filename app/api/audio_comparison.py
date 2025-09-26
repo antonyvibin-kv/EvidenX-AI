@@ -106,12 +106,12 @@ async def compare_audio_files(request: AudioComparisonRequest):
             witness2_name=witness2_name
         )
         
-        # Update witness analysis with correct media IDs
+        # Update witness analysis with evidence IDs
         for witness in witnesses_analysis:
             if witness["audioId"] == "media1":
-                witness["audioId"] = request.mediaId1
+                witness["audioId"] = "ev1"
             elif witness["audioId"] == "media2":
-                witness["audioId"] = request.mediaId2
+                witness["audioId"] = "ev2"
         
         # Save to database
         comparison_id = str(uuid.uuid4())
@@ -169,12 +169,20 @@ async def get_audio_comparisons_for_case(case_id: str):
         
         comparisons = []
         for comparison_data in response.data:
+            # Transform witnesses to use ev1/ev2 instead of UUIDs
+            witnesses = comparison_data["witnesses"]
+            for witness in witnesses:
+                if witness.get("audioId") == comparison_data["media_id1"]:
+                    witness["audioId"] = "ev1"
+                elif witness.get("audioId") == comparison_data["media_id2"]:
+                    witness["audioId"] = "ev2"
+            
             comparisons.append(AudioComparisonResponse(
                 id=comparison_data["id"],
                 caseId=comparison_data["case_id"],
                 mediaId1=comparison_data["media_id1"],
                 mediaId2=comparison_data["media_id2"],
-                witnesses=comparison_data["witnesses"],
+                witnesses=witnesses,
                 detailedAnalysis=comparison_data["detailed_analysis"],
                 created_at=comparison_data.get("created_at"),
                 updated_at=comparison_data.get("updated_at")
@@ -210,12 +218,20 @@ async def get_audio_comparison_by_id(comparison_id: str):
         
         comparison_data = response.data[0]
         
+        # Transform witnesses to use ev1/ev2 instead of UUIDs
+        witnesses = comparison_data["witnesses"]
+        for witness in witnesses:
+            if witness.get("audioId") == comparison_data["media_id1"]:
+                witness["audioId"] = "ev1"
+            elif witness.get("audioId") == comparison_data["media_id2"]:
+                witness["audioId"] = "ev2"
+        
         return AudioComparisonResponse(
             id=comparison_data["id"],
             caseId=comparison_data["case_id"],
             mediaId1=comparison_data["media_id1"],
             mediaId2=comparison_data["media_id2"],
-            witnesses=comparison_data["witnesses"],
+            witnesses=witnesses,
             detailedAnalysis=comparison_data["detailed_analysis"],
             created_at=comparison_data.get("created_at"),
             updated_at=comparison_data.get("updated_at")
