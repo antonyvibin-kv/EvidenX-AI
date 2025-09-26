@@ -36,13 +36,10 @@ async def get_evidence_for_case(case_id: str) -> list[EvidenceInfo]:
             evidence_info = evidence_data["evidence_info"]
             evidence_type = evidence_info["type"]
             
-            # Find matching media for this evidence type
             matching_media = None
             if evidence_type in media_by_type and media_by_type[evidence_type]:
-                # Use the first matching media item
                 matching_media = media_by_type[evidence_type][0]
             
-            # Determine processing status based on evidence type
             processing_status = "processed" if evidence_type in ["audio", "video"] else "pending"
             
             evidence_list.append(EvidenceInfo(
