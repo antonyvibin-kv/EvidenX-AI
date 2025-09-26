@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
-from app.schemas.case import CaseResponse, CaseCreate, CaseUpdate, MediaInfo, EvidenceInfo, AudioComparisonInfo
+from app.schemas.case import CaseResponse, CaseCreate, CaseUpdate, EvidenceInfo, AudioComparisonInfo
 from app.core.database import supabase_client
 import logging
 
@@ -7,72 +7,54 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def get_media_for_case(case_id: str) -> list[MediaInfo]:
-    """Get media information for a specific case."""
-    try:
-        client = supabase_client.get_client()
-        
-        response = client.table("media").select("*").eq("case_id", case_id).order("created_at", desc=True).execute()
-        
-        media_list = []
-        for media_data in response.data:
-            media_info = media_data["media_info"]
-            
-            # Convert duration to string if it's a number
-            duration = media_info.get("duration")
-            if duration is not None and isinstance(duration, (int, float)):
-                duration = str(duration)
-            
-            media_list.append(MediaInfo(
-                id=media_data["id"],
-                type=media_info["type"],
-                url=media_info["url"],
-                title=media_info["title"],
-                description=media_info["description"],
-                fileSize=media_info.get("fileSize"),
-                format=media_info.get("format"),
-                uploadDate=media_info.get("uploadDate"),
-                duration=duration,
-                transcript=media_info.get("transcript"),
-                speakers=media_info.get("speakers"),
-                confidence=media_info.get("confidence"),
-                resolution=media_info.get("resolution"),
-                fps=media_info.get("fps"),
-                thumbnail=media_info.get("thumbnail"),
-                camera=media_info.get("camera"),
-                location=media_info.get("location"),
-                pages=media_info.get("pages"),
-                author=media_info.get("author")
-            ))
-        
-        return media_list
-        
-    except Exception as e:
-        logger.error(f"Error fetching media for case {case_id}: {e}")
-        return []
-
-
 async def get_evidence_for_case(case_id: str) -> list[EvidenceInfo]:
-    """Get evidence information for a specific case."""
+    """Get evidence information for a specific case, merged with media data."""
     try:
         client = supabase_client.get_client()
         
-        response = client.table("evidence").select("*").eq("case_id", case_id).order("created_at", desc=True).execute()
+        # Fetch evidence data
+        evidence_response = client.table("evidence").select("*").eq("case_id", case_id).order("created_at", desc=True).execute()
+        
+        # Fetch media data
+        media_response = client.table("media").select("*").eq("case_id", case_id).order("created_at", desc=True).execute()
+        
+        # Create a mapping of media by type for matching
+        media_by_type = {}
+        for media_data in media_response.data:
+            media_info = media_data["media_info"]
+            media_type = media_info.get("type", "unknown")
+            if media_type not in media_by_type:
+                media_by_type[media_type] = []
+            media_by_type[media_type].append({
+                "url": media_info.get("url"),
+                "transcript": media_info.get("transcript"),
+                "duration": media_info.get("duration")
+            })
         
         evidence_list = []
-        for evidence_data in response.data:
+        for evidence_data in evidence_response.data:
             evidence_info = evidence_data["evidence_info"]
+            evidence_type = evidence_info["type"]
+            
+            # Find matching media for this evidence type
+            matching_media = None
+            if evidence_type in media_by_type and media_by_type[evidence_type]:
+                # Use the first matching media item
+                matching_media = media_by_type[evidence_type][0]
+            
             evidence_list.append(EvidenceInfo(
                 id=evidence_data["id"],
                 caseId=evidence_data["case_id"],
-                type=evidence_info["type"],
+                type=evidence_type,
                 name=evidence_info["name"],
                 description=evidence_info["description"],
                 uploadDate=evidence_info["uploadDate"],
                 fileSize=evidence_info["fileSize"],
                 tags=evidence_info["tags"],
-                duration=evidence_info.get("duration"),
+                duration=evidence_info.get("duration") or (matching_media.get("duration") if matching_media else None),
                 thumbnail=evidence_info.get("thumbnail"),
+                url=matching_media.get("url") if matching_media else None,
+                transcript=matching_media.get("transcript") if matching_media else None,
                 created_at=evidence_data.get("created_at"),
                 updated_at=evidence_data.get("updated_at")
             ))
@@ -123,8 +105,7 @@ async def get_cases():
         for case_data in response.data:
             case_info = case_data["case_info"]
             
-            # Get media, evidence, and audio comparisons for this case
-            media = await get_media_for_case(case_data["id"])
+            # Get evidence (with merged media data) and audio comparisons for this case
             evidence = await get_evidence_for_case(case_data["id"])
             audio_comparisons = await get_audio_comparisons_for_case(case_data["id"])
             
@@ -140,7 +121,6 @@ async def get_cases():
                 status=case_info["status"],
                 visibility=case_info["visibility"],
                 location=case_info["location"],
-                media=media,
                 evidence=evidence,
                 audioComparisons=audio_comparisons,
                 created_at=case_data.get("created_at"),
@@ -174,8 +154,7 @@ async def get_case_by_id(case_id: str):
         case_data = response.data[0]
         case_info = case_data["case_info"]
         
-        # Get media, evidence, and audio comparisons for this case
-        media = await get_media_for_case(case_data["id"])
+        # Get evidence (with merged media data) and audio comparisons for this case
         evidence = await get_evidence_for_case(case_data["id"])
         audio_comparisons = await get_audio_comparisons_for_case(case_data["id"])
         
@@ -191,7 +170,6 @@ async def get_case_by_id(case_id: str):
             status=case_info["status"],
             visibility=case_info["visibility"],
             location=case_info["location"],
-            media=media,
             evidence=evidence,
             audioComparisons=audio_comparisons,
             created_at=case_data.get("created_at"),

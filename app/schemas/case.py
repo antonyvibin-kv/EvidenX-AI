@@ -52,6 +52,8 @@ class EvidenceInfo(BaseModel):
     tags: List[str]
     duration: Optional[str] = None
     thumbnail: Optional[str] = None
+    url: Optional[str] = None
+    transcript: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -103,7 +105,6 @@ class CaseResponse(BaseModel):
     status: str
     visibility: str
     location: str
-    media: Optional[List[MediaInfo]] = None
     evidence: Optional[List[EvidenceInfo]] = None
     audioComparisons: Optional[List[AudioComparisonInfo]] = None
     created_at: Optional[datetime] = None
